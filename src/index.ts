@@ -26,6 +26,7 @@ import {
     tuyaSyncCron,
 } from "extensions/scripts/tuya/cron";
 import { tuyaRoutes } from "extensions/scripts/tuya/routes";
+import { gmailProcessRecipts } from "extensions/scripts/gmail/recipts";
 //import { deviceStateLog, doorOpenAlert, motionLightsUp } from "extensions/scripts/tuya-automations";
 
 await registerSettings({
@@ -53,6 +54,7 @@ await registerSettings({
         tuyaCatalogueCron,
         tuyaSensorReadingsCron,
         tuyaRoutes,
+        gmailProcessRecipts,
         /*
         motionLightsUp,
         doorOpenAlert,
