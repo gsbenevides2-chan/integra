@@ -1,6 +1,7 @@
 import onCron from "core/triggers/cron";
 import { reconcileDevices, runDiscovery } from "utils/tuya/sync";
 import { syncCatalogue, syncSensorReadings } from "utils/tuya/sensorSync";
+import onInterval from "core/triggers/interval";
 
 export const tuyaDiscoveryCron = onCron(
     {
@@ -12,12 +13,12 @@ export const tuyaDiscoveryCron = onCron(
     },
 );
 
-export const tuyaSyncCron = onCron(
+export const tuyaSyncCron = onInterval(
     {
-        cron: "* * * * *", // every minute
+        intervalMs: 5000, // every minute
         id: "tuya-sync",
     },
-    async (_, traceId) => {
+    async (traceId) => {
         await reconcileDevices(traceId);
     },
 );
