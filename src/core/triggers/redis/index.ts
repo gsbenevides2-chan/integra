@@ -1,17 +1,13 @@
-import { RedisClient } from "bun";
+import { redis } from "bun";
 import type { Trigger, TriggerSettings } from "core/triggers";
-import type { RedisInstanceKey } from "./types";
-import { redisInstanceSettings } from "./instances";
 import { startTracer, addTracerEvent, endTracer, serializeError } from "core/instrumentation";
 import type { TracerStatus } from "core/instrumentation/types";
 
 export interface RedisSettings extends TriggerSettings {
-    instance: RedisInstanceKey;
     channel: string;
 }
 
 export interface RedisSubscription {
-    instance: RedisInstanceKey;
     channel: string;
     call: RedisCall;
     triggerId: string;
@@ -22,7 +18,6 @@ export interface RedisTrigger extends Trigger {}
 export type RedisCall = (message: string, channel: string, traceId: string) => Promise<void>;
 
 declare global {
-    var redisClients: Map<RedisInstanceKey, RedisClient> | undefined;
     var redisSubscriptions: RedisSubscription[] | undefined;
 }
 
@@ -35,7 +30,6 @@ export default function onRedis(settings: RedisSettings, func: RedisCall): Redis
             global.redisSubscriptions = [
                 ...global.redisSubscriptions,
                 {
-                    instance: settings.instance,
                     channel: settings.channel,
                     call: func,
                     triggerId: settings.id,
@@ -48,70 +42,52 @@ export default function onRedis(settings: RedisSettings, func: RedisCall): Redis
 export async function startRedisClients() {
     if (!global.redisSubscriptions) return;
 
-    for (const [key, config] of Object.entries(redisInstanceSettings)) {
-        const instanceKey = key as RedisInstanceKey;
-        const subs = global.redisSubscriptions.filter((sub) => sub.instance === instanceKey);
-        if (subs.length === 0) continue;
+    const subs = global.redisSubscriptions;
+    if (subs.length === 0) return;
 
-        const client = new RedisClient(config.url);
+    const nonDuplicatedChannels = subs.filter(
+        (sub, index, arr) => index === arr.findIndex((s) => s.channel === sub.channel),
+    );
 
-        if (!global.redisClients) global.redisClients = new Map();
-        global.redisClients.set(instanceKey, client);
-
-        client.onconnect = () => {
-            console.debug(`Redis conectado: ${key}`);
-        };
-
-        client.onclose = (error) => {
-            console.debug(`Redis desconectado: ${key}`, error);
-        };
-
-        await client.connect();
-
-        const nonDuplicatedChannels = subs.filter(
-            (sub, index, arr) => index === arr.findIndex((s) => s.channel === sub.channel),
-        );
-
-        for (const sub of nonDuplicatedChannels) {
-            await client.subscribe(sub.channel, async (message, channel) => {
-                const channelSubs = subs.filter((s) => s.channel === channel);
-                await Promise.all(
-                    channelSubs.map(async (s) => {
-                        const traceId = crypto.randomUUID();
-                        await startTracer({
-                            inputData: {
-                                subs: sub,
-                                message,
-                                channel,
-                            },
+    for (const sub of nonDuplicatedChannels) {
+        await redis.subscribe(sub.channel, async (message, channel) => {
+            const channelSubs = subs.filter((s) => s.channel === channel);
+            await Promise.all(
+                channelSubs.map(async (s) => {
+                    const traceId = crypto.randomUUID();
+                    await startTracer({
+                        inputData: {
+                            subs: sub,
+                            message,
+                            channel,
+                        },
+                        traceId,
+                        triggerId: sub.triggerId,
+                        workflowType: "Redis",
+                    });
+                    let status: TracerStatus = "SUCCESS";
+                    try {
+                        await s.call(message, channel, traceId);
+                    } catch (error: unknown) {
+                        status = "ERROR";
+                        await addTracerEvent({
+                            eventData: serializeError(error),
+                            eventName: "Redis on Error",
+                            eventType: "ERROR",
                             traceId,
-                            triggerId: sub.triggerId,
-                            workflowType: "Redis",
                         });
-                        let status: TracerStatus = "SUCCESS";
-                        try {
-                            await s.call(message, channel, traceId);
-                        } catch (error: unknown) {
-                            status = "ERROR";
-                            await addTracerEvent({
-                                eventData: serializeError(error),
-                                eventName: "Redis on Error",
-                                eventType: "ERROR",
-                                traceId,
-                            });
-                        } finally {
-                            await endTracer({
-                                outputData: {},
-                                status,
-                                traceId,
-                            });
-                        }
-                    }),
-                );
-            });
-        }
+                    } finally {
+                        await endTracer({
+                            outputData: {},
+                            status,
+                            traceId,
+                        });
+                    }
+                }),
+            );
+        });
 
-        process.on("SIGTERM", () => client.close());
-        process.on("SIGKILL", () => client.close());
+        process.on("SIGTERM", () => redis.close());
+        process.on("SIGKILL", () => redis.close());
     }
 }
