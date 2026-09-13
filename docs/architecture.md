@@ -46,31 +46,45 @@ External Services
 
 - **Trigger**: A unit of business logic (a script) that responds to an event from an external service.
 - **Service Client**: A persistent connection to an external service (MQTT broker, Redis, etc.), managed globally.
-- **Instrumentation**: A tracing/logging layer that records every trigger execution into MongoDB for audit/debug.
+- **Instrumentation**: A tracing/logging layer that records every trigger execution into PostgreSQL for audit/debug.
 - **Trace ID**: A `crypto.randomUUID()` assigned per execution, propagated through all events and logs.
 
 ## Directory Structure
 
 ```
 src/
-├── index.ts                    # Entry point
-├── triggers/
-│   ├── index.ts                # Trigger registry + CLI arg parser
-│   ├── http/                   # Elysia HTTP server
-│   ├── mqtt/                   # MQTT client
-│   ├── redis/                  # Redis Pub/Sub
-│   ├── postgres/               # PostgreSQL polling
-│   ├── email/                  # IMAP email listening
-│   └── cron/                   # Bun cron jobs
-├── instrumentation/
-│   ├── index.ts                # Tracer start/end/event functions
-│   ├── types.ts                # TypeScript interfaces
-│   └── mongo.ts                # Mongoose models & connection
-├── scripts/
-│   └── authentik/loginFailed/  # Example script
+├── index.ts                    # Entry point (registers all triggers)
+├── core/
+│   ├── index.ts                # registerSettings() & CLI parser
+│   ├── triggers/
+│   │   ├── index.ts            # Trigger interface & CliSettings
+│   │   ├── http/               # Elysia HTTP server
+│   │   ├── mqtt/               # MQTT client(s)
+│   │   ├── redis/              # Redis Pub/Sub client(s)
+│   │   ├── postgres/           # PostgreSQL polling
+│   │   ├── email/              # IMAP email listening
+│   │   ├── cron/               # Bun cron jobs
+│   │   ├── manual/             # Manual test triggers
+│   │   └── tuya/               # Tuya smart home integration
+│   ├── ui/                     # React dashboard
+│   ├── instrumentation/        # Execution tracing
+│   │   ├── index.ts            # Tracer functions
+│   │   └── types.ts            # Tracer types
+│   └── db/                     # Drizzle ORM
+│       ├── drizzle.config.ts   # ORM config
+│       └── schema.ts           # Database schema
+├── extensions/
+│   ├── scripts/                # User-defined trigger scripts
+│   │   ├── authentik/          # Authentik SSO integration
+│   │   ├── calendars/          # Calendar integrations
+│   │   ├── gmail/              # Gmail integration
+│   │   ├── tuya/               # Tuya smart home
+│   │   └── ...                 # Other integrations
+│   └── db/                     # Extension database schemas
 ├── utils/
 │   ├── safeEnvGet.ts           # Safe env var access
-│   └── discord/sendMessage.ts  # Discord webhook sender
-└── types/
-    └── script.ts               # Shared types (empty)
+│   ├── discord/                # Discord utilities
+│   ├── google/                 # Google API utilities
+│   └── ...                     # Other utilities
+└── input.css                   # Tailwind CSS input
 ```

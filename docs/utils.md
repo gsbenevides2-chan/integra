@@ -1,6 +1,6 @@
 # Utilities
 
-## `safeEnvGet(keyName: string): string`
+## `safeEnvGet(keyName: string): string` (from `src/utils/safeEnvGet.ts`)
 
 File: `src/utils/safeEnvGet.ts`
 
@@ -10,7 +10,7 @@ Safely reads an environment variable. Throws if the variable is missing.
 const url = safeEnvGet("MY_VAR"); // throws if not set
 ```
 
-## `sendDiscordMessage(message: string, traceId: string)`
+## `sendDiscordMessage(message: string, traceId: string)` (from `src/utils/discord/sendMessage.ts`)
 
 File: `src/utils/discord/sendMessage.ts`
 

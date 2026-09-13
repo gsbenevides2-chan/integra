@@ -3,7 +3,7 @@
 ## Requirements
 
 - **Bun** >= 1.3.13
-- **MongoDB** (for instrumentation/tracing)
+- **PostgreSQL** (for instrumentation/tracing)
 
 ## Quick Start
 

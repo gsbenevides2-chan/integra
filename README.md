@@ -1,15 +1,18 @@
 # Integra
 
-Modular event-driven integration platform built with **Bun** and **Elysia**. Connects external services (HTTP, MQTT, Redis, PostgreSQL, Email/IMAP, Cron) and executes custom scripts in response to events — with full execution tracing to MongoDB.
+Modular event-driven integration daemon built with **Bun** and **Elysia**. Connects external services (HTTP, MQTT, Redis, PostgreSQL, Email/IMAP, Cron) and executes custom scripts in response to events — with full execution tracing to PostgreSQL.
 
 ## Features
 
-- **5 trigger types**: HTTP (Elysia), MQTT, Redis (Pub/Sub), PostgreSQL (Polling), Email (IMAP IDLE), and Cron
-- **Automatic instrumentation**: Every execution is traced and logged to MongoDB
-- **Modular scripts**: Business logic lives in `src/scripts/`, cleanly separated from infrastructure
-- **Discord integration**: Built-in utility for sending Discord messages
+- **6 trigger types**: HTTP (Elysia), MQTT, Redis (Pub/Sub), PostgreSQL (Polling), Email (IMAP IDLE), and Cron
+- **Automatic instrumentation**: Every execution is traced and logged to PostgreSQL
+- **Modular scripts**: Business logic lives in `src/extensions/scripts/`, cleanly separated from infrastructure
+- **React dashboard**: Web UI for viewing execution logs and managing integrations
+- **Tuya smart home**: Built-in support for Tuya IoT devices
+- **Discord & Gmail**: Built-in utilities for Discord messages and Gmail integration
 - **Zod validation**: Request bodies validated at runtime
 - **Debug & filter**: CLI flags for debug logging and trigger filtering
+- **Full TypeScript**: Type-safe end-to-end with Zod validation
 
 ## Quick Start
 
@@ -35,13 +38,14 @@ bun run start --only-run=authentik:loginFailed --debug
 
 See the [`docs/`](./docs/) folder for detailed documentation:
 
-- [Architecture](./docs/architecture.md)
-- [Triggers](./docs/triggers.md)
-- [Instrumentation](./docs/instrumentation.md)
-- [Scripts](./docs/scripts.md)
-- [Utilities](./docs/utils.md)
-- [Configuration](./docs/configuration.md)
-- [Environment](./docs/environment.md)
+- **[Overview](./docs/overview.md)** — Complete project structure and concepts
+- **[Architecture](./docs/architecture.md)** — System design and data flow
+- **[Triggers](./docs/triggers.md)** — Trigger types and factory functions
+- **[Scripts](./docs/scripts.md)** — Creating business logic scripts
+- **[Instrumentation](./docs/instrumentation.md)** — Execution tracing and PostgreSQL schema
+- **[Configuration](./docs/configuration.md)** — Environment variables and CLI arguments
+- **[Environment](./docs/environment.md)** — Setup and code quality tools
+- **[Utilities](./docs/utils.md)** — Helper functions
 
 ## Scripts
 
@@ -56,12 +60,16 @@ See the [`docs/`](./docs/) folder for detailed documentation:
 
 ## Tech Stack
 
-- **Runtime**: [Bun](https://bun.sh)
-- **HTTP**: [Elysia](https://elysiajs.com)
-- **Validation**: [Zod](https://zod.dev)
-- **Database**: MongoDB via Mongoose, PostgreSQL via Bun SQL, Redis via Bun RedisClient
-- **Messaging**: MQTT.js
+- **Runtime**: [Bun](https://bun.sh) >= 1.3.13
+- **HTTP**: [Elysia](https://elysiajs.com) 1.4+
+- **Validation**: [Zod](https://zod.dev) v4
+- **Database ORM**: [Drizzle ORM](https://orm.drizzle.team) with PostgreSQL
+- **UI Framework**: [React](https://react.dev) 19 + [Tailwind CSS](https://tailwindcss.com) 4
+- **Database**: PostgreSQL (via Drizzle), Redis (Bun RedisClient), MQTT broker
+- **Messaging**: MQTT.js, Discord webhooks, Gmail API
 - **Email**: node-imap + mailparser
+- **Code Quality**: ESLint + TypeScript ESLint, Prettier
+- **Build**: Bun build tool
 
 ## License
 

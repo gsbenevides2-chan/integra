@@ -2,15 +2,17 @@
 
 Triggers are the core abstraction in Integra. A **Trigger** is an object with:
 - `id: string` — unique identifier
+- `type?: string` — trigger type (e.g., `"http"`, `"cron"`, `"mqtt"`)
 - `register(): Promise<void>` — called during startup to wire the trigger to its service
+- `test?(): Promise<void>` — optional test function
 
 ## Creating a Trigger
 
 Each trigger type has a factory function:
 
 ```ts
-import onHttp from "triggers/http";
-import { TypedElysia } from "triggers/http/types";
+import onHttp from "core/triggers/http";
+import { TypedElysia } from "core/triggers/http/types";
 
 const trigger = onHttp(
     { id: "my:httpTrigger" },
@@ -22,7 +24,7 @@ const trigger = onHttp(
 
 ### HTTP (Elysia)
 
-File: `src/triggers/http/index.ts`
+File: `src/core/triggers/http/index.ts`
 
 Creates an Elysia route. Supports full Elysia API (params, query, body validation via Zod, etc.).
 
@@ -34,7 +36,7 @@ Triggers are registered into a global Elysia server that starts on configurable 
 
 ### MQTT
 
-File: `src/triggers/mqtt/index.ts`
+File: `src/core/triggers/mqtt/index.ts`
 
 Subscribes to a topic on an MQTT broker.
 
@@ -45,11 +47,11 @@ onMqtt({ id: "my:mqtt", broker: "default", topic: "home/temp" }, async (message,
 ```
 
 - `qos`: 0, 1, or 2 (default 0)
-- Instances defined in `src/triggers/mqtt/brokers.ts`
+- Instances defined in `src/core/triggers/mqtt/brokers.ts`
 
 ### Redis (Pub/Sub)
 
-File: `src/triggers/redis/index.ts`
+File: `src/core/triggers/redis/index.ts`
 
 Subscribes to a Redis channel.
 
@@ -58,11 +60,11 @@ onRedis({ id: "my:redis", instance: "default", channel: "notifications" }, async
 ```
 
 - Uses Bun's built-in `RedisClient`
-- Instances defined in `src/triggers/redis/instances.ts`
+- Instances defined in `src/core/triggers/redis/instances.ts`
 
 ### PostgreSQL (Polling)
 
-File: `src/triggers/postgres/index.ts`
+File: `src/core/triggers/postgres/index.ts`
 
 Polls a PostgreSQL database at a fixed interval.
 
@@ -75,11 +77,11 @@ onPostgres(
 
 - `intervalMs`: polling interval in milliseconds
 - Uses Bun's built-in `SQL` client
-- Instances defined in `src/triggers/postgres/instances.ts`
+- Instances defined in `src/core/triggers/postgres/instances.ts`
 
 ### Email (IMAP)
 
-File: `src/triggers/email/index.ts`
+File: `src/core/triggers/email/index.ts`
 
 Listens for new emails via IMAP IDLE.
 
@@ -91,11 +93,11 @@ onEmail(
 ```
 
 - Uses `imap` and `mailparser` packages
-- Accounts defined in `src/triggers/email/accounts.ts`
+- Accounts defined in `src/core/triggers/email/accounts.ts`
 
 ### Cron
 
-File: `src/triggers/cron/index.ts`
+File: `src/core/triggers/cron/index.ts`
 
 Runs on a schedule using Bun's built-in cron.
 
@@ -108,7 +110,7 @@ onCron(
 
 ## Trigger Registry (CLI)
 
-`src/triggers/index.ts` handles registration and CLI arguments:
+`src/core/index.ts` handles registration and CLI arguments via `registerSettings()`
 
 | Flag | Description |
 |------|-------------|
