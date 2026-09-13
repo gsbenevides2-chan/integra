@@ -11,7 +11,7 @@ Copy `.env` to configure the project.
 | `MQTT_DEFAULT_BROKER_PASSWORD` | MQTT password | — |
 | `MONGO_LOGS` | MongoDB connection string (for instrumentation) | — |
 | `DISCORD_DEFAULT_PUBLIC_KEY` | Discord Bot Token | — |
-| `REDIS_DEFAULT_URL` | Redis URL | `none` |
+| `REDIS_URL` | Redis URL | `none` |
 | `EMAIL_DEFAULT_USER` | IMAP email user | `none` |
 | `EMAIL_DEFAULT_PASSWORD` | IMAP email password | `none` |
 | `EMAIL_DEFAULT_HOST` | IMAP host | `none` |
