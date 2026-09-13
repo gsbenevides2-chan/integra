@@ -6,6 +6,7 @@ import { statusPlatformDashboard } from "./status-platform";
 import { tpLinkCenterDashboard } from "./tp-link-center";
 import { trainStatusDashboard } from "./train-status";
 import { tuyaDashboard } from "./tuya";
+// import { settingsDashbord } from "./setttings";
 
 export const dashboards: DashboardData[] = [
     tuyaDashboard,
@@ -15,4 +16,5 @@ export const dashboards: DashboardData[] = [
     trainStatusDashboard,
     executionLogsDashboard,
     googleAccountsDashboard,
+    //settingsDashbord,
 ];
