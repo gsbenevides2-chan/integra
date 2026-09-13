@@ -5,6 +5,7 @@ import {
     randomKeyIvPart,
     rsaEncryptNoPadding,
 } from "./protocolCrypto";
+import { addTracerEvent } from "core/instrumentation";
 
 const COMMON_HEADERS = {
     Accept: "text/plain, */*; q=0.01",
@@ -18,12 +19,14 @@ export interface TpLinkClientOptions {
     host: string;
     username: string;
     password: string;
+    traceId?: string;
 }
 
 export class TpLinkClient {
     private host: string;
     private username: string;
     private password: string;
+    private traceId: string;
 
     private nn = "";
     private ee = "";
@@ -40,6 +43,7 @@ export class TpLinkClient {
         this.host = opts.host;
         this.username = opts.username;
         this.password = opts.password;
+        this.traceId = opts.traceId ?? "no-trace";
     }
 
     private baseUrl(path: string): string {
@@ -60,35 +64,65 @@ export class TpLinkClient {
     }
 
     private async fetchGDPRParm(): Promise<void> {
-        const res = await fetch(this.baseUrl("/cgi/getGDPRParm"), {
-            method: "POST",
-            headers: {
-                ...this.commonHeaders(),
-                "Content-Type": "text/plain",
-                Origin: `http://${this.host}`,
-                Referer: `http://${this.host}/`,
-                TokenID: this.token,
-            },
-            body: "",
-        });
-        this.captureCookie(res);
+        const start = new Date();
+        try {
+            const res = await fetch(this.baseUrl("/cgi/getGDPRParm"), {
+                method: "POST",
+                headers: {
+                    ...this.commonHeaders(),
+                    "Content-Type": "text/plain",
+                    Origin: `http://${this.host}`,
+                    Referer: `http://${this.host}/`,
+                    TokenID: this.token,
+                },
+                body: "",
+            });
+            this.captureCookie(res);
 
-        const text = await res.text();
-        if (!res.ok) {
-            throw new Error(`getGDPRParm failed: HTTP ${res.status}: ${text}`);
+            const text = await res.text();
+            if (!res.ok) {
+                throw new Error(`getGDPRParm failed: HTTP ${res.status}: ${text}`);
+            }
+
+            const nn = /var\s+nn\s*=\s*"([^"]*)"/.exec(text)?.[1];
+            const ee = /var\s+ee\s*=\s*"([^"]*)"/.exec(text)?.[1];
+            const seq = /var\s+seq\s*=\s*"([^"]*)"/.exec(text)?.[1];
+
+            if (!nn || !ee || !seq) {
+                throw new Error(`Could not parse getGDPRParm response: ${text}`);
+            }
+
+            await addTracerEvent({
+                traceId: this.traceId,
+                eventName: "TP-Link fetchGDPRParm",
+                eventType: "INFO",
+                eventData: {
+                    operation: "fetchGDPRParm",
+                    host: this.host,
+                    status: "success",
+                    duration: new Date().getTime() - start.getTime(),
+                    paramsExtracted: true,
+                },
+            });
+
+            this.nn = nn;
+            this.ee = ee;
+            this.seq = parseInt(seq, 10);
+        } catch (error) {
+            await addTracerEvent({
+                traceId: this.traceId,
+                eventName: "TP-Link fetchGDPRParm",
+                eventType: "ERROR",
+                eventData: {
+                    operation: "fetchGDPRParm",
+                    host: this.host,
+                    status: "error",
+                    duration: new Date().getTime() - start.getTime(),
+                    error: error instanceof Error ? error.message : String(error),
+                },
+            });
+            throw error;
         }
-
-        const nn = /var\s+nn\s*=\s*"([^"]*)"/.exec(text)?.[1];
-        const ee = /var\s+ee\s*=\s*"([^"]*)"/.exec(text)?.[1];
-        const seq = /var\s+seq\s*=\s*"([^"]*)"/.exec(text)?.[1];
-
-        if (!nn || !ee || !seq) {
-            throw new Error(`Could not parse getGDPRParm response: ${text}`);
-        }
-
-        this.nn = nn;
-        this.ee = ee;
-        this.seq = parseInt(seq, 10);
     }
 
     private buildSign(payloadForRsa: string): string {
@@ -102,17 +136,18 @@ export class TpLinkClient {
         aesKey: string,
         aesIv: string,
     ): Promise<string> {
-        const data = aesEncrypt(jsonBody, aesKey, aesIv);
-        const dataLen = data.length;
-
-        const signPlain = isLogin
-            ? `key=${aesKey}&iv=${aesIv}&h=${this.hash}&s=${this.seq + dataLen}`
-            : `h=${this.hash}&s=${this.seq + dataLen}`;
-
-        const sign = this.buildSign(signPlain);
-
-        const body = `sign=${sign}\r\ndata=${data}\r\n`;
+        const start = new Date();
         try {
+            const data = aesEncrypt(jsonBody, aesKey, aesIv);
+            const dataLen = data.length;
+
+            const signPlain = isLogin
+                ? `key=${aesKey}&iv=${aesIv}&h=${this.hash}&s=${this.seq + dataLen}`
+                : `h=${this.hash}&s=${this.seq + dataLen}`;
+
+            const sign = this.buildSign(signPlain);
+
+            const body = `sign=${sign}\r\ndata=${data}\r\n`;
             const res = await fetch(this.baseUrl("/cgi_gdpr?9"), {
                 method: "POST",
                 headers: {
@@ -132,12 +167,44 @@ export class TpLinkClient {
                 throw new Error(`cgi_gdpr failed: HTTP ${res.status}: ${text}`);
             }
 
-            return aesDecrypt(text.trim(), aesKey, aesIv);
+            const decrypted = aesDecrypt(text.trim(), aesKey, aesIv);
+
+            await addTracerEvent({
+                traceId: this.traceId,
+                eventName: "TP-Link postGdpr",
+                eventType: "INFO",
+                eventData: {
+                    operation: isLogin ? "login" : "call",
+                    host: this.host,
+                    status: "success",
+                    httpStatus: res.status,
+                    duration: new Date().getTime() - start.getTime(),
+                    requestSize: body.length,
+                    responseSize: text.length,
+                },
+            });
+
+            return decrypted;
         } catch (error: unknown) {
+            const errorMessage = error instanceof Error ? error.message : String(error);
             console.error(
                 "Error while make request to TP-Link router:",
                 JSON.stringify({ jsonBody, error }),
             );
+
+            await addTracerEvent({
+                traceId: this.traceId,
+                eventName: "TP-Link postGdpr",
+                eventType: "ERROR",
+                eventData: {
+                    operation: isLogin ? "login" : "call",
+                    host: this.host,
+                    status: "error",
+                    duration: new Date().getTime() - start.getTime(),
+                    error: errorMessage,
+                },
+            });
+
             throw new Error("Request Error");
         }
     }
@@ -151,27 +218,58 @@ export class TpLinkClient {
     }
 
     private async doLogin(aesKey: string, aesIv: string): Promise<void> {
-        this.aesKey = aesKey;
-        this.aesIv = aesIv;
+        const start = new Date();
+        try {
+            this.aesKey = aesKey;
+            this.aesIv = aesIv;
 
-        const indexRes = await fetch(this.baseUrl("/"), {
-            headers: this.commonHeaders(),
-        });
-        this.captureCookie(indexRes);
-        const indexHtml = await indexRes.text();
+            const indexRes = await fetch(this.baseUrl("/"), {
+                headers: this.commonHeaders(),
+            });
+            this.captureCookie(indexRes);
+            const indexHtml = await indexRes.text();
 
-        if (this.isLoginPageResponse(indexHtml)) {
-            throw new Error("Session expired: received login page after authentication");
+            if (this.isLoginPageResponse(indexHtml)) {
+                throw new Error("Session expired: received login page after authentication");
+            }
+
+            const token = this.extractToken(indexHtml);
+            if (!token) {
+                const htmlPreview = indexHtml.substring(0, Math.min(500, indexHtml.length));
+                throw new Error(
+                    `Could not extract token from index page. HTML length: ${indexHtml.length}, preview: ${htmlPreview}`,
+                );
+            }
+            this.token = token;
+
+            await addTracerEvent({
+                traceId: this.traceId,
+                eventName: "TP-Link doLogin",
+                eventType: "INFO",
+                eventData: {
+                    operation: "doLogin",
+                    host: this.host,
+                    status: "success",
+                    duration: new Date().getTime() - start.getTime(),
+                    tokenExtracted: true,
+                },
+            });
+        } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            await addTracerEvent({
+                traceId: this.traceId,
+                eventName: "TP-Link doLogin",
+                eventType: "ERROR",
+                eventData: {
+                    operation: "doLogin",
+                    host: this.host,
+                    status: "error",
+                    duration: new Date().getTime() - start.getTime(),
+                    error: errorMessage,
+                },
+            });
+            throw error;
         }
-
-        const token = this.extractToken(indexHtml);
-        if (!token) {
-            const htmlPreview = indexHtml.substring(0, Math.min(500, indexHtml.length));
-            throw new Error(
-                `Could not extract token from index page. HTML length: ${indexHtml.length}, preview: ${htmlPreview}`,
-            );
-        }
-        this.token = token;
     }
 
     async login(maxRetries = 3, baseDelayMs = 500): Promise<void> {
@@ -222,15 +320,57 @@ export class TpLinkClient {
                 }
 
                 await this.doLogin(aesKey, aesIv);
+
+                await addTracerEvent({
+                    traceId: this.traceId,
+                    eventName: "TP-Link login",
+                    eventType: "INFO",
+                    eventData: {
+                        operation: "login",
+                        host: this.host,
+                        status: "success",
+                        attempt,
+                        maxRetries,
+                    },
+                });
                 return;
             } catch (error) {
+                const errorMessage = error instanceof Error ? error.message : String(error);
                 if (attempt === maxRetries) {
+                    await addTracerEvent({
+                        traceId: this.traceId,
+                        eventName: "TP-Link login",
+                        eventType: "ERROR",
+                        eventData: {
+                            operation: "login",
+                            host: this.host,
+                            status: "error",
+                            attempt,
+                            maxRetries,
+                            error: errorMessage,
+                            finalAttempt: true,
+                        },
+                    });
                     throw error;
                 }
                 const delayMs = baseDelayMs * Math.pow(2, attempt - 1);
                 console.warn(
-                    `Login attempt ${attempt}/${maxRetries} failed: ${error instanceof Error ? error.message : String(error)}. Retrying in ${delayMs}ms...`,
+                    `Login attempt ${attempt}/${maxRetries} failed: ${errorMessage}. Retrying in ${delayMs}ms...`,
                 );
+                await addTracerEvent({
+                    traceId: this.traceId,
+                    eventName: "TP-Link login",
+                    eventType: "ERROR",
+                    eventData: {
+                        operation: "login",
+                        host: this.host,
+                        status: "retrying",
+                        attempt,
+                        maxRetries,
+                        error: errorMessage,
+                        nextRetryIn: delayMs,
+                    },
+                });
                 await new Promise((resolve) => setTimeout(resolve, delayMs));
             }
         }
@@ -241,19 +381,55 @@ export class TpLinkClient {
         oid: string,
         data: Record<string, unknown> = {},
     ): Promise<unknown> {
-        if (!this.aesKey) {
-            throw new Error("Not logged in yet - call login() first");
-        }
-
-        const payload = { data, operation, oid };
-
-        const jsonBody = JSON.stringify(payload) + "\r\n";
-        const decrypted = await this.postGdpr(jsonBody, false, this.aesKey, this.aesIv);
-
+        const start = new Date();
         try {
-            return JSON.parse(decrypted);
-        } catch {
-            return decrypted;
+            if (!this.aesKey) {
+                throw new Error("Not logged in yet - call login() first");
+            }
+
+            const payload = { data, operation, oid };
+
+            const jsonBody = JSON.stringify(payload) + "\r\n";
+            const decrypted = await this.postGdpr(jsonBody, false, this.aesKey, this.aesIv);
+
+            let result: unknown;
+            try {
+                result = JSON.parse(decrypted);
+            } catch {
+                result = decrypted;
+            }
+
+            await addTracerEvent({
+                traceId: this.traceId,
+                eventName: "TP-Link call",
+                eventType: "INFO",
+                eventData: {
+                    operation,
+                    oid,
+                    host: this.host,
+                    status: "success",
+                    duration: new Date().getTime() - start.getTime(),
+                    resultType: typeof result === "object" ? "object" : typeof result,
+                },
+            });
+
+            return result;
+        } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            await addTracerEvent({
+                traceId: this.traceId,
+                eventName: "TP-Link call",
+                eventType: "ERROR",
+                eventData: {
+                    operation,
+                    oid,
+                    host: this.host,
+                    status: "error",
+                    duration: new Date().getTime() - start.getTime(),
+                    error: errorMessage,
+                },
+            });
+            throw error;
         }
     }
 

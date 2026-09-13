@@ -51,8 +51,8 @@ import type { RouterStatus } from "./settings";
 
 const vendorCache = new Map<string, string>();
 
-async function getRouterClient(ip: string, password: string): Promise<TpLinkClient> {
-    const client = new TpLinkClient({ host: ip, username: "user", password });
+async function getRouterClient(ip: string, password: string, traceId?: string): Promise<TpLinkClient> {
+    const client = new TpLinkClient({ host: ip, username: "user", password, traceId });
     await client.login();
     return client;
 }
@@ -584,7 +584,7 @@ async function syncRouterStatus(client: TpLinkClient): Promise<void> {
     });
 }
 
-export async function syncSettings(): Promise<void> {
+export async function syncSettings(traceId?: string): Promise<void> {
     const triggerId = "sync-tp-link-data";
 
     // Check if circuit breaker is open
@@ -607,7 +607,7 @@ export async function syncSettings(): Promise<void> {
             );
         }
 
-        const client = await getRouterClient(controller.ip, controller.password);
+        const client = await getRouterClient(controller.ip, controller.password, traceId);
         await syncDhcp(client);
         await syncFirewall(client);
         await syncConnectedDevices(client);
