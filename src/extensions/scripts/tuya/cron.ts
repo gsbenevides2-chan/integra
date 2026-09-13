@@ -15,7 +15,7 @@ export const tuyaDiscoveryCron = onCron(
 
 export const tuyaSyncCron = onInterval(
     {
-        intervalMs: 5000, // every minute
+        intervalMs: 5000, // every five secconds
         id: "tuya-sync",
     },
     async (traceId) => {
@@ -33,14 +33,14 @@ export const tuyaCatalogueCron = onCron(
     },
 );
 
-export const tuyaSensorReadingsCron = onCron(
+export const tuyaSensorReadingsCron = onInterval(
     {
-        // Every minute: a PIR holds its triggered state only briefly, so a slower sweep
+        // every five secconds: a PIR holds its triggered state only briefly, so a slower sweep
         // would walk straight past a real detection.
-        cron: "* * * * *",
+        intervalMs: 5000, // every five secconds
         id: "tuya-sensor-readings",
     },
-    async (_, traceId) => {
+    async (traceId) => {
         await syncSensorReadings(traceId);
     },
 );
