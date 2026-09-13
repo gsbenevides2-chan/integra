@@ -1,7 +1,7 @@
 {
     "name": "@gsbenevides2/integra",
     "displayName": "Integra",
-    "description": "Event-driven daemon connecting external services (HTTP, MQTT, Home Assistant, Redis, PostgreSQL, Email/IMAP, Cron) to user scripts. Every execution is auto-traced to PostgreSQL.",
+    "description": "Event-driven daemon connecting external services (HTTP, MQTT, Redis, PostgreSQL, Email/IMAP, Cron) to user scripts. Every execution is auto-traced to PostgreSQL.",
     "module": "index.ts",
     "type": "module",
     "version": "1.0.34",

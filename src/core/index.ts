@@ -1,6 +1,5 @@
 import { startHttpServer } from "core/triggers/http";
 import { startMqttClients } from "core/triggers/mqtt";
-import { startHaClients } from "core/triggers/hass";
 import { startRedisClients } from "core/triggers/redis";
 import { startEmailClients } from "core/triggers/email";
 import { startPostgresClients } from "core/triggers/postgres";
@@ -54,7 +53,6 @@ declare global {
 const startClientsAndServers = () => {
     startHttpServer();
     startMqttClients();
-    startHaClients();
     startRedisClients();
     startEmailClients();
     startPostgresClients();

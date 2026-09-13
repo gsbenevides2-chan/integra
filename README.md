@@ -1,10 +1,10 @@
 # Integra
 
-Modular event-driven integration platform built with **Bun** and **Elysia**. Connects external services (HTTP, MQTT, Home Assistant, Redis, PostgreSQL, Email/IMAP, Cron) and executes custom scripts in response to events — with full execution tracing to MongoDB.
+Modular event-driven integration platform built with **Bun** and **Elysia**. Connects external services (HTTP, MQTT, Redis, PostgreSQL, Email/IMAP, Cron) and executes custom scripts in response to events — with full execution tracing to MongoDB.
 
 ## Features
 
-- **6 trigger types**: HTTP (Elysia), MQTT, Home Assistant (WebSocket), Redis (Pub/Sub), PostgreSQL (Polling), Email (IMAP IDLE), and Cron
+- **5 trigger types**: HTTP (Elysia), MQTT, Redis (Pub/Sub), PostgreSQL (Polling), Email (IMAP IDLE), and Cron
 - **Automatic instrumentation**: Every execution is traced and logged to MongoDB
 - **Modular scripts**: Business logic lives in `src/scripts/`, cleanly separated from infrastructure
 - **Discord integration**: Built-in utility for sending Discord messages

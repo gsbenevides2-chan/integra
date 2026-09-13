@@ -1,6 +1,6 @@
 # Integra — AGENTS.md
 
-Event-driven daemon connecting external services (HTTP, MQTT, Home Assistant, Redis,
+Event-driven daemon connecting external services (HTTP, MQTT, Redis,
 PostgreSQL, Email/IMAP, Cron) to user scripts. Every execution is auto-traced to MongoDB.
 
 ## Commands
@@ -27,10 +27,10 @@ No tests exist yet. No typecheck script (tsc is `noEmit`, errors surface via IDE
 **Entrypoint**: `src/index.ts` → `registerTriggers()` in `src/triggers/index.ts`
 
 This is a daemon, not a library. It registers zero or more triggers, then starts
-all six service clients unconditionally (each is a no-op if no subscriptions exist):
+all five service clients unconditionally (each is a no-op if no subscriptions exist):
 
 ```
-HTTP (Elysia) | MQTT | Home Assistant WS | Redis Pub/Sub | Postgres polling | Email IMAP
+HTTP (Elysia) | MQTT | Redis Pub/Sub | Postgres polling | Email IMAP
 ```
 
 Triggers live in `src/scripts/<service>/<name>/`. Each exports a `Trigger` object

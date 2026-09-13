@@ -10,8 +10,6 @@ Copy `.env` to configure the project.
 | `MQTT_DEFAULT_BROKER_USERNAME` | MQTT username | — |
 | `MQTT_DEFAULT_BROKER_PASSWORD` | MQTT password | — |
 | `MONGO_LOGS` | MongoDB connection string (for instrumentation) | — |
-| `HA_DEFAULT_URL` | Home Assistant URL | `wss://home.local.gui.dev.br` |
-| `HA_DEFAULT_TOKEN` | Home Assistant Long-Lived Access Token | — |
 | `DISCORD_DEFAULT_PUBLIC_KEY` | Discord Bot Token | — |
 | `REDIS_DEFAULT_URL` | Redis URL | `none` |
 | `EMAIL_DEFAULT_USER` | IMAP email user | `none` |

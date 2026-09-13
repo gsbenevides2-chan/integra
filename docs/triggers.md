@@ -47,23 +47,6 @@ onMqtt({ id: "my:mqtt", broker: "default", topic: "home/temp" }, async (message,
 - `qos`: 0, 1, or 2 (default 0)
 - Instances defined in `src/triggers/mqtt/brokers.ts`
 
-### Home Assistant (WebSocket)
-
-File: `src/triggers/hass/index.ts`
-
-Subscribes to Home Assistant events via WebSocket.
-
-```ts
-onHassEvent(
-    { id: "my:ha", instance: "default", eventType: "state_changed", entityId: "light.living_room" },
-    async (event, traceId) => { ... },
-);
-```
-
-- `eventType`: defaults to `"state_changed"`
-- `entityId`: optional filter
-- Instances defined in `src/triggers/hass/instances.ts`
-
 ### Redis (Pub/Sub)
 
 File: `src/triggers/redis/index.ts`

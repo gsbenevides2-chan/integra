@@ -1,6 +1,6 @@
 # Architecture
 
-Integra is a modular event-driven integration platform built with **Bun** and **Elysia**. It connects various external services (MQTT, Home Assistant, Redis, PostgreSQL, Email/IMAP, HTTP) and executes user-defined scripts (triggers) in response to events from those services.
+Integra is a modular event-driven integration platform built with **Bun** and **Elysia**. It connects various external services (MQTT, Redis, PostgreSQL, Email/IMAP, HTTP) and executes user-defined scripts (triggers) in response to events from those services.
 
 ## High-Level Flow
 
@@ -8,7 +8,6 @@ Integra is a modular event-driven integration platform built with **Bun** and **
 External Services
   ├─ HTTP (Elysia server)
   ├─ MQTT Broker
-  ├─ Home Assistant (WebSocket)
   ├─ Redis (Pub/Sub)
   ├─ PostgreSQL (Polling)
   └─ Email (IMAP IDLE)
@@ -59,7 +58,6 @@ src/
 │   ├── index.ts                # Trigger registry + CLI arg parser
 │   ├── http/                   # Elysia HTTP server
 │   ├── mqtt/                   # MQTT client
-│   ├── hass/                   # Home Assistant WebSocket
 │   ├── redis/                  # Redis Pub/Sub
 │   ├── postgres/               # PostgreSQL polling
 │   ├── email/                  # IMAP email listening
