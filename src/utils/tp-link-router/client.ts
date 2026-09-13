@@ -146,51 +146,11 @@ export class TpLinkClient {
         return /var\s+token\s*=\s*"([^"]*)"/.exec(html)?.[1] ?? null;
     }
 
-    async login(): Promise<void> {
-        await this.fetchGDPRParm();
+    private isLoginPageResponse(html: string): boolean {
+        return html.toLowerCase().includes("login") && !this.extractToken(html);
+    }
 
-        this.hash = md5Hex(this.username + this.password);
-
-        const aesKey = randomKeyIvPart();
-        const aesIv = randomKeyIvPart();
-
-        const userNameB64 = Buffer.from(this.username, "utf8").toString("base64");
-        const passwdB64 = Buffer.from(this.password, "utf8").toString("base64");
-
-        const payload = {
-            data: {
-                UserName: userNameB64,
-                Passwd: passwdB64,
-                Action: "1",
-                stack: "0,0,0,0,0,0",
-                pstack: "0,0,0,0,0,0",
-            },
-            operation: "cgi",
-            oid: "/cgi/login",
-        };
-
-        const jsonBody = JSON.stringify(payload) + "\r\n";
-
-        const decrypted = await this.postGdpr(jsonBody, true, aesKey, aesIv);
-
-        const retMatch = /\$\.ret\s*=\s*(-?\d+)/.exec(decrypted);
-        if (retMatch) {
-            const code = parseInt(retMatch[1] ?? "0", 10);
-            if (code !== 0) {
-                throw new Error(`Login failed, error code ${code}`);
-            }
-        } else {
-            let parsed: unknown;
-            try {
-                parsed = JSON.parse(decrypted);
-            } catch {
-                throw new Error(`Unrecognized login response: ${decrypted}`);
-            }
-            if (!(parsed as { success?: boolean })?.success) {
-                throw new Error(`Login failed: ${JSON.stringify(parsed)}`);
-            }
-        }
-
+    private async doLogin(aesKey: string, aesIv: string): Promise<void> {
         this.aesKey = aesKey;
         this.aesIv = aesIv;
 
@@ -199,11 +159,81 @@ export class TpLinkClient {
         });
         this.captureCookie(indexRes);
         const indexHtml = await indexRes.text();
+
+        if (this.isLoginPageResponse(indexHtml)) {
+            throw new Error("Session expired: received login page after authentication");
+        }
+
         const token = this.extractToken(indexHtml);
         if (!token) {
-            throw new Error("Logged in, but could not find session token on index page");
+            const htmlPreview = indexHtml.substring(0, Math.min(500, indexHtml.length));
+            throw new Error(
+                `Could not extract token from index page. HTML length: ${indexHtml.length}, preview: ${htmlPreview}`,
+            );
         }
         this.token = token;
+    }
+
+    async login(maxRetries = 3, baseDelayMs = 500): Promise<void> {
+        for (let attempt = 1; attempt <= maxRetries; attempt++) {
+            try {
+                await this.fetchGDPRParm();
+
+                this.hash = md5Hex(this.username + this.password);
+
+                const aesKey = randomKeyIvPart();
+                const aesIv = randomKeyIvPart();
+
+                const userNameB64 = Buffer.from(this.username, "utf8").toString("base64");
+                const passwdB64 = Buffer.from(this.password, "utf8").toString("base64");
+
+                const payload = {
+                    data: {
+                        UserName: userNameB64,
+                        Passwd: passwdB64,
+                        Action: "1",
+                        stack: "0,0,0,0,0,0",
+                        pstack: "0,0,0,0,0,0",
+                    },
+                    operation: "cgi",
+                    oid: "/cgi/login",
+                };
+
+                const jsonBody = JSON.stringify(payload) + "\r\n";
+
+                const decrypted = await this.postGdpr(jsonBody, true, aesKey, aesIv);
+
+                const retMatch = /\$\.ret\s*=\s*(-?\d+)/.exec(decrypted);
+                if (retMatch) {
+                    const code = parseInt(retMatch[1] ?? "0", 10);
+                    if (code !== 0) {
+                        throw new Error(`Login failed, error code ${code}`);
+                    }
+                } else {
+                    let parsed: unknown;
+                    try {
+                        parsed = JSON.parse(decrypted);
+                    } catch {
+                        throw new Error(`Unrecognized login response: ${decrypted}`);
+                    }
+                    if (!(parsed as { success?: boolean })?.success) {
+                        throw new Error(`Login failed: ${JSON.stringify(parsed)}`);
+                    }
+                }
+
+                await this.doLogin(aesKey, aesIv);
+                return;
+            } catch (error) {
+                if (attempt === maxRetries) {
+                    throw error;
+                }
+                const delayMs = baseDelayMs * Math.pow(2, attempt - 1);
+                console.warn(
+                    `Login attempt ${attempt}/${maxRetries} failed: ${error instanceof Error ? error.message : String(error)}. Retrying in ${delayMs}ms...`,
+                );
+                await new Promise((resolve) => setTimeout(resolve, delayMs));
+            }
+        }
     }
 
     async call(

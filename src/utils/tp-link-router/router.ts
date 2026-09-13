@@ -25,6 +25,12 @@ import { TpLinkClient } from "./client";
 import { getAllRouters, getControllerRouter, getDeviceNameOfMac } from "./devices";
 import { normalizeMac } from "./normalizeMac";
 import { saveRouterStatus, saveRouterStatusHistory } from "./settings";
+import {
+    shouldThrottle,
+    recordError,
+    recordSuccess,
+    getCircuitBreakerState,
+} from "./circuitBreaker";
 import type {
     ConnectedDevices,
     DEV2_ADT_WAN,
@@ -579,6 +585,20 @@ async function syncRouterStatus(client: TpLinkClient): Promise<void> {
 }
 
 export async function syncSettings(): Promise<void> {
+    const triggerId = "sync-tp-link-data";
+
+    // Check if circuit breaker is open
+    if (shouldThrottle(triggerId)) {
+        const state = getCircuitBreakerState(triggerId);
+        const nextRetryAt = state.nextRetryAt?.toISOString() ?? "unknown";
+        console.warn(
+            `Circuit breaker OPEN for ${triggerId}. Skipping sync. Next retry at: ${nextRetryAt}`,
+        );
+        throw new Error(
+            `Circuit breaker open - too many recent errors. Will retry after ${nextRetryAt}`,
+        );
+    }
+
     try {
         const controller = await getControllerRouter();
         if (!controller) {
@@ -592,7 +612,13 @@ export async function syncSettings(): Promise<void> {
         await syncFirewall(client);
         await syncConnectedDevices(client);
         await syncRouterStatus(client);
+
+        // Record success to reset error counter
+        recordSuccess(triggerId);
     } catch (error) {
+        // Record error for circuit breaker
+        recordError(triggerId, error);
+
         console.error("Error syncing router settings:", error);
         throw new Error(
             "Error syncing router settings: " +
