@@ -5,7 +5,7 @@ import type { EmailListResponse } from "utils/google/types";
 
 const cacheKey = "gmail:support:after";
 
-export async function getUnreadEmails(traceId: string): Promise<EmailListResponse[]> {
+export async function getUnreadSupportEmails(traceId: string): Promise<EmailListResponse[]> {
     const variable = await CacheClient.get(cacheKey);
     const after = variable ? Number(variable) : getUnixTime(new Date());
     const suportEmails = ["support@vtexhelp.zendesk.com", "support@wakecommerce.zendesk.com"];

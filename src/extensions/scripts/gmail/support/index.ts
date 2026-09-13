@@ -1,5 +1,5 @@
 import onCron from "core/triggers/cron";
-import { getUnreadEmails } from "./getEmails";
+import { getUnreadSupportEmails } from "./getEmails";
 import { getEmail } from "utils/google/getEmail";
 import { processEmailOverAI } from "./processEmailOverAI";
 import sendDiscordMessage from "utils/discord/sendMessage";
@@ -10,7 +10,7 @@ export const gmailSuport = onCron(
         id: "gmail:suport",
     },
     async (_, traceId) => {
-        const emails = await getUnreadEmails(traceId);
+        const emails = await getUnreadSupportEmails(traceId);
         if (emails.length === 0) return;
         const emailsContent = await Promise.all(
             emails.map(({ id }) => getEmail("guilherme.benevides@econverse.com.br", id, traceId)),
