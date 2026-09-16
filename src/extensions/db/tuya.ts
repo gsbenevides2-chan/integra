@@ -10,8 +10,6 @@ import {
 
 export const tuya = pgSchema("tuya");
 
-export const tuyaProtocolVersion = tuya.enum("protocol_version", ["3.1", "3.3", "3.4", "3.5"]);
-export const tuyaBulbType = tuya.enum("bulb_type", ["A", "B", "C"]);
 export const tuyaDeviceKind = tuya.enum("device_kind", ["lamp", "switch"]);
 
 export const tuyaDevices = tuya.table("devices", {
@@ -20,18 +18,12 @@ export const tuyaDevices = tuya.table("devices", {
         .$defaultFn(() => crypto.randomUUID()),
     name: text().notNull(),
     tuyaDeviceId: text().notNull().unique(),
-    localKey: text().notNull(),
-    ip: text(),
-    protocolVersion: tuyaProtocolVersion(),
     kind: tuyaDeviceKind().notNull().default("lamp"),
-    /** Lamps only: which data point layout the bulb uses. */
-    bulbType: tuyaBulbType(),
     /** Switches only: how many relay channels the device exposes. */
     channelCount: integer(),
     enabled: boolean().notNull().default(true),
     /** Kept out of the dashboard without stopping control or history. */
     hidden: boolean().notNull().default(false),
-    online: boolean().notNull().default(false),
     lastSeenAt: timestamp({ withTimezone: true }),
     createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
 });
@@ -79,7 +71,7 @@ export const tuyaSensors = tuya.table("sensors", {
     enabled: boolean().notNull().default(true),
     /** Kept out of the dashboard without stopping collection. */
     hidden: boolean().notNull().default(false),
-    /** Cursor into the Tuya event log: the timestamp of the newest event already stored. */
+    /** When Pulsar last reported a reading for this sensor. */
     lastEventAt: timestamp({ withTimezone: true }),
     lastSeenAt: timestamp({ withTimezone: true }),
     createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),

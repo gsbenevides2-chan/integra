@@ -1,46 +1,13 @@
 import onCron from "core/triggers/cron";
-import { reconcileDevices, runDiscovery } from "utils/tuya/sync";
-import { syncCatalogue, syncSensorReadings } from "utils/tuya/sensorSync";
-import onInterval from "core/triggers/interval";
+import { pruneTuyaHistory } from "utils/tuya/sensorSync";
 
-export const tuyaDiscoveryCron = onCron(
+/** DB hygiene only — device/sensor state itself is pushed live via Tuya Pulsar. */
+export const tuyaHistoryPruneCron = onCron(
     {
-        cron: "*/5 * * * *", // every 5 minutes
-        id: "tuya-discovery",
+        cron: "0 4 * * *", // once a day, off-hours
+        id: "tuya-history-prune",
     },
     async (_, traceId) => {
-        await runDiscovery(traceId);
-    },
-);
-
-export const tuyaSyncCron = onInterval(
-    {
-        intervalMs: 5000, // every five secconds
-        id: "tuya-sync",
-    },
-    async (traceId) => {
-        await reconcileDevices(traceId);
-    },
-);
-
-export const tuyaCatalogueCron = onCron(
-    {
-        cron: "7 */6 * * *", // four times a day, offset so it never lands with the readings sweep
-        id: "tuya-catalogue",
-    },
-    async (_, traceId) => {
-        await syncCatalogue(traceId);
-    },
-);
-
-export const tuyaSensorReadingsCron = onInterval(
-    {
-        // every five secconds: a PIR holds its triggered state only briefly, so a slower sweep
-        // would walk straight past a real detection.
-        intervalMs: 5000, // every five secconds
-        id: "tuya-sensor-readings",
-    },
-    async (traceId) => {
-        await syncSensorReadings(traceId);
+        await pruneTuyaHistory(traceId);
     },
 );

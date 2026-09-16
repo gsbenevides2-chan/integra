@@ -1,92 +1,163 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowPathIcon, HomeIcon, PlusIcon } from "@heroicons/react/24/outline";
+import { HomeIcon, PlusIcon } from "@heroicons/react/24/outline";
 import { Button } from "core/ui/components/button";
 import { Drawer } from "core/ui/components/drawer";
 import { Input } from "core/ui/components/input";
+import { Select } from "core/ui/components/select";
 import { useToast } from "core/ui/components/toast";
 import type { DashboardData } from "core/ui/createDashboard";
 import { getTuyaEdenClient } from "extensions/scripts/tuya/client";
-import { DiscoveredLamps } from "./component/discoveredLamps";
 import { DeviceCard } from "./component/deviceCard";
 import { DeviceDrawerContent } from "./component/deviceDrawerContent";
 import { Modal } from "./component/modal";
 import { SensorCard } from "./component/sensorCard";
 import { SensorDrawerContent } from "./component/sensorDrawerContent";
-import type { DiscoveredDevice, Device, DeviceCommand, DeviceState, Sensor } from "./types";
+import type { Device, DeviceCommand, DeviceState, Sensor, DeviceKind } from "./types";
 
 const POLL_INTERVAL_MS = 5000;
 
-interface NewLampDraft {
+interface NewDeviceDraft {
     name: string;
     tuyaDeviceId: string;
-    localKey: string;
-    ip: string;
+    kind: DeviceKind;
+    channelCount: string;
 }
 
-const EMPTY_DRAFT: NewLampDraft = { name: "", tuyaDeviceId: "", localKey: "", ip: "" };
+const EMPTY_DEVICE_DRAFT: NewDeviceDraft = {
+    name: "",
+    tuyaDeviceId: "",
+    kind: "lamp",
+    channelCount: "",
+};
 
-function NewLampForm({
+function NewDeviceForm({
     isOpen,
-    draft,
-    onDraftChange,
     onCreated,
     onClose,
 }: {
     isOpen: boolean;
-    draft: NewLampDraft;
-    onDraftChange: (draft: NewLampDraft) => void;
     onCreated: () => void;
     onClose: () => void;
 }) {
     const { showToast } = useToast();
+    const [draft, setDraft] = useState<NewDeviceDraft>(EMPTY_DEVICE_DRAFT);
     const [isSaving, setIsSaving] = useState(false);
 
     const submit = useCallback(async () => {
-        if (!draft.name || !draft.tuyaDeviceId || !draft.localKey) {
-            showToast("Preencha nome, device ID e localKey", "error");
+        if (!draft.name || !draft.tuyaDeviceId) {
+            showToast("Preencha nome e device ID", "error");
             return;
         }
         setIsSaving(true);
-        const client = getTuyaEdenClient();
-        const { error } = await client.tuya.devices.post({
+        const { error } = await getTuyaEdenClient().tuya.devices.post({
             name: draft.name,
             tuyaDeviceId: draft.tuyaDeviceId,
-            localKey: draft.localKey,
-            ip: draft.ip || null,
+            kind: draft.kind,
+            channelCount: draft.channelCount ? Number(draft.channelCount) : null,
         });
         setIsSaving(false);
         if (error) {
-            showToast("Falha ao cadastrar a lâmpada", "error");
+            showToast("Falha ao cadastrar o dispositivo", "error");
             return;
         }
-        showToast("Lâmpada cadastrada", "success");
+        showToast("Dispositivo cadastrado", "success");
+        setDraft(EMPTY_DEVICE_DRAFT);
         onCreated();
         onClose();
     }, [draft, showToast, onCreated, onClose]);
 
     return (
-        <Modal isOpen={isOpen} onClose={onClose} title="Nova lâmpada">
+        <Modal isOpen={isOpen} onClose={onClose} title="Novo dispositivo">
             <div className="flex flex-col gap-2">
                 <Input
                     label="Nome"
                     value={draft.name}
-                    onChange={(e) => onDraftChange({ ...draft, name: e.target.value })}
+                    onChange={(e) => setDraft({ ...draft, name: e.target.value })}
                 />
                 <Input
-                    label="Device ID"
+                    label="Device ID (Tuya)"
                     value={draft.tuyaDeviceId}
-                    onChange={(e) => onDraftChange({ ...draft, tuyaDeviceId: e.target.value })}
+                    onChange={(e) => setDraft({ ...draft, tuyaDeviceId: e.target.value })}
+                />
+                <Select
+                    label="Tipo"
+                    value={draft.kind}
+                    onChange={(e) => setDraft({ ...draft, kind: e.target.value as DeviceKind })}
+                    options={[
+                        { label: "Lâmpada", value: "lamp" },
+                        { label: "Interruptor", value: "switch" },
+                    ]}
+                />
+                {draft.kind === "switch" && (
+                    <Input
+                        label="Quantidade de canais"
+                        value={draft.channelCount}
+                        onChange={(e) => setDraft({ ...draft, channelCount: e.target.value })}
+                    />
+                )}
+            </div>
+            <div className="flex justify-end gap-2">
+                <Button variant="secondary" onClick={onClose}>
+                    Cancelar
+                </Button>
+                <Button onClick={submit} isLoading={isSaving}>
+                    Cadastrar
+                </Button>
+            </div>
+        </Modal>
+    );
+}
+
+interface NewSensorDraft {
+    name: string;
+    tuyaDeviceId: string;
+}
+
+const EMPTY_SENSOR_DRAFT: NewSensorDraft = { name: "", tuyaDeviceId: "" };
+
+function NewSensorForm({
+    isOpen,
+    onCreated,
+    onClose,
+}: {
+    isOpen: boolean;
+    onCreated: () => void;
+    onClose: () => void;
+}) {
+    const { showToast } = useToast();
+    const [draft, setDraft] = useState<NewSensorDraft>(EMPTY_SENSOR_DRAFT);
+    const [isSaving, setIsSaving] = useState(false);
+
+    const submit = useCallback(async () => {
+        if (!draft.name || !draft.tuyaDeviceId) {
+            showToast("Preencha nome e device ID", "error");
+            return;
+        }
+        setIsSaving(true);
+        const { error } = await getTuyaEdenClient().tuya.sensors.post(draft);
+        setIsSaving(false);
+        if (error) {
+            showToast("Falha ao cadastrar o sensor", "error");
+            return;
+        }
+        showToast("Sensor cadastrado", "success");
+        setDraft(EMPTY_SENSOR_DRAFT);
+        onCreated();
+        onClose();
+    }, [draft, showToast, onCreated, onClose]);
+
+    return (
+        <Modal isOpen={isOpen} onClose={onClose} title="Novo sensor">
+            <div className="flex flex-col gap-2">
+                <Input
+                    label="Nome"
+                    value={draft.name}
+                    onChange={(e) => setDraft({ ...draft, name: e.target.value })}
                 />
                 <Input
-                    label="localKey"
-                    type="password"
-                    value={draft.localKey}
-                    onChange={(e) => onDraftChange({ ...draft, localKey: e.target.value })}
-                />
-                <Input
-                    label="IP (opcional, descoberto automaticamente)"
-                    value={draft.ip}
-                    onChange={(e) => onDraftChange({ ...draft, ip: e.target.value })}
+                    label="Device ID (Tuya)"
+                    value={draft.tuyaDeviceId}
+                    onChange={(e) => setDraft({ ...draft, tuyaDeviceId: e.target.value })}
                 />
             </div>
             <div className="flex justify-end gap-2">
@@ -103,18 +174,16 @@ function NewLampForm({
 
 function Dashboard() {
     const { showToast } = useToast();
-    const [devices, setLamps] = useState<Device[]>([]);
-    const [discovered, setDiscovered] = useState<DiscoveredDevice[]>([]);
+    const [devices, setDevices] = useState<Device[]>([]);
     const [sensors, setSensors] = useState<Sensor[]>([]);
     const [openSensorId, setOpenSensorId] = useState<string | null>(null);
-    const [isSyncingSensors, setIsSyncingSensors] = useState(false);
     const [showHidden, setShowHidden] = useState(false);
     const [showHiddenDevices, setShowHiddenDevices] = useState(false);
     const [isLoading, setIsLoading] = useState(true);
     const [busyDeviceIds, setBusyDeviceIds] = useState<string[]>([]);
     const [openDeviceId, setOpenDeviceId] = useState<string | null>(null);
-    const [showNewLampForm, setShowNewLampForm] = useState(false);
-    const [draft, setDraft] = useState<NewLampDraft>(EMPTY_DRAFT);
+    const [showNewDeviceForm, setShowNewDeviceForm] = useState(false);
+    const [showNewSensorForm, setShowNewSensorForm] = useState(false);
 
     // A command is answered by the device itself, so a poll landing mid-flight would
     // overwrite the optimistic value with a reading taken before the change.
@@ -123,14 +192,13 @@ function Dashboard() {
     const fetchAll = useCallback(async (useLoading: boolean) => {
         if (useLoading) setIsLoading(true);
         const client = getTuyaEdenClient();
-        const [lampsRes, discoveredRes, sensorsRes] = await Promise.all([
+        const [devicesRes, sensorsRes] = await Promise.all([
             client.tuya.devices.get({ query: { includeHidden: "true" } }),
-            client.tuya.discovered.get(),
             client.tuya.sensors.get({ query: { includeHidden: "true" } }),
         ]);
-        if (lampsRes.data) {
-            const fresh = lampsRes.data as unknown as Device[];
-            setLamps((current) =>
+        if (devicesRes.data) {
+            const fresh = devicesRes.data as unknown as Device[];
+            setDevices((current) =>
                 fresh.map((device) =>
                     inFlight.current.has(device.id)
                         ? (current.find((item) => item.id === device.id) ?? device)
@@ -138,7 +206,6 @@ function Dashboard() {
                 ),
             );
         }
-        if (discoveredRes.data) setDiscovered(discoveredRes.data as unknown as DiscoveredDevice[]);
         if (sensorsRes.data) setSensors(sensorsRes.data as unknown as Sensor[]);
         if (useLoading) setIsLoading(false);
     }, []);
@@ -149,10 +216,12 @@ function Dashboard() {
         return () => clearInterval(interval);
     }, [fetchAll]);
 
-    const applyState = useCallback((lampId: string, state: Partial<DeviceState>) => {
-        setLamps((current) =>
+    const applyState = useCallback((deviceId: string, state: Partial<DeviceState>) => {
+        setDevices((current) =>
             current.map((device) =>
-                device.id === lampId ? { ...device, state: { ...device.state, ...state } } : device,
+                device.id === deviceId
+                    ? { ...device, state: { ...device.state, ...state } }
+                    : device,
             ),
         );
     }, []);
@@ -160,7 +229,6 @@ function Dashboard() {
     const sendCommand = useCallback(
         async (device: Device, command: DeviceCommand) => {
             const previous = device.state;
-            // Optimistic: the LAN round trip is milliseconds, so the UI should not wait.
             applyState(device.id, command as Partial<DeviceState>);
             setBusyDeviceIds((current) => [...current, device.id]);
             inFlight.current.add(device.id);
@@ -183,28 +251,6 @@ function Dashboard() {
         [applyState, showToast],
     );
 
-    const syncCatalogue = useCallback(async () => {
-        setIsSyncingSensors(true);
-        const { error } = await getTuyaEdenClient().tuya.catalogue.sync.post();
-        setIsSyncingSensors(false);
-        if (error) {
-            showToast("Falha ao sincronizar o catálogo", "error");
-            return;
-        }
-        showToast("Catálogo sincronizado", "success");
-        fetchAll(false);
-    }, [fetchAll, showToast]);
-
-    const registerDiscovered = useCallback((device: DiscoveredDevice) => {
-        setDraft({
-            name: "",
-            tuyaDeviceId: device.deviceId,
-            localKey: "",
-            ip: device.ip,
-        });
-        setShowNewLampForm(true);
-    }, []);
-
     const openDevice = devices.find((device) => device.id === openDeviceId) ?? null;
     const visibleDevices = devices.filter((device) => !device.hidden);
     const hiddenDevices = devices.filter((device) => device.hidden);
@@ -222,23 +268,25 @@ function Dashboard() {
         <div className="p-3 flex flex-col gap-4">
             <div className="flex items-center justify-between flex-wrap gap-2">
                 <h1 className="text-xl">Casa</h1>
-                <Button
-                    variant="secondary"
-                    onClick={() => {
-                        setDraft(EMPTY_DRAFT);
-                        setShowNewLampForm(true);
-                    }}
-                >
-                    <PlusIcon className="size-4" /> Nova lâmpada
-                </Button>
+                <div className="flex gap-2">
+                    <Button variant="secondary" onClick={() => setShowNewSensorForm(true)}>
+                        <PlusIcon className="size-4" /> Novo sensor
+                    </Button>
+                    <Button variant="secondary" onClick={() => setShowNewDeviceForm(true)}>
+                        <PlusIcon className="size-4" /> Novo dispositivo
+                    </Button>
+                </div>
             </div>
 
-            <NewLampForm
-                isOpen={showNewLampForm}
-                draft={draft}
-                onDraftChange={setDraft}
+            <NewDeviceForm
+                isOpen={showNewDeviceForm}
                 onCreated={() => fetchAll(false)}
-                onClose={() => setShowNewLampForm(false)}
+                onClose={() => setShowNewDeviceForm(false)}
+            />
+            <NewSensorForm
+                isOpen={showNewSensorForm}
+                onCreated={() => fetchAll(false)}
+                onClose={() => setShowNewSensorForm(false)}
             />
 
             {isLoading ? (
@@ -266,7 +314,7 @@ function Dashboard() {
                             <p className="text-sm text-mist-400">
                                 {hiddenDevices.length > 0
                                     ? "Todas as lâmpadas estão ocultas."
-                                    : "Nenhuma lâmpada ainda. Clique em Sincronizar para importar as da sua conta Tuya."}
+                                    : "Nenhuma lâmpada ainda. Cadastre uma pelo device ID da Tuya."}
                             </p>
                         ) : (
                             <div className="grid gap-3 grid-cols-[repeat(auto-fill,minmax(240px,1fr))]">
@@ -289,8 +337,7 @@ function Dashboard() {
                         </h2>
                         {shownSwitches.length === 0 ? (
                             <p className="text-sm text-mist-400">
-                                Nenhum interruptor. Clique em Sincronizar para importar os da sua
-                                conta Tuya.
+                                Nenhum interruptor ainda. Cadastre um pelo device ID da Tuya.
                             </p>
                         ) : (
                             <div className="grid gap-3 grid-cols-[repeat(auto-fill,minmax(240px,1fr))]">
@@ -312,32 +359,23 @@ function Dashboard() {
                             <h2 className="text-sm font-semibold text-mist-300">
                                 Sensores ({visibleSensors.length})
                             </h2>
-                            <div className="flex items-center gap-2">
-                                {hiddenSensors.length > 0 && (
-                                    <button
-                                        type="button"
-                                        onClick={() => setShowHidden((current) => !current)}
-                                        className="text-xs text-mist-400 hover:text-mist-300 cursor-pointer underline underline-offset-2"
-                                    >
-                                        {showHidden
-                                            ? "Esconder ocultos"
-                                            : `Mostrar ocultos (${hiddenSensors.length})`}
-                                    </button>
-                                )}
-                                <Button
-                                    variant="secondary"
-                                    onClick={syncCatalogue}
-                                    isLoading={isSyncingSensors}
+                            {hiddenSensors.length > 0 && (
+                                <button
+                                    type="button"
+                                    onClick={() => setShowHidden((current) => !current)}
+                                    className="text-xs text-mist-400 hover:text-mist-300 cursor-pointer underline underline-offset-2"
                                 >
-                                    <ArrowPathIcon className="size-4" /> Sincronizar
-                                </Button>
-                            </div>
+                                    {showHidden
+                                        ? "Esconder ocultos"
+                                        : `Mostrar ocultos (${hiddenSensors.length})`}
+                                </button>
+                            )}
                         </div>
                         {shownSensors.length === 0 ? (
                             <p className="text-sm text-mist-400">
                                 {hiddenSensors.length > 0
                                     ? "Todos os sensores estão ocultos."
-                                    : "Nenhum sensor ainda. Clique em Sincronizar para importar os da sua conta Tuya."}
+                                    : "Nenhum sensor ainda. Cadastre um pelo device ID da Tuya."}
                             </p>
                         ) : (
                             <div className="grid gap-3 grid-cols-[repeat(auto-fill,minmax(240px,1fr))]">
@@ -351,8 +389,6 @@ function Dashboard() {
                             </div>
                         )}
                     </section>
-
-                    <DiscoveredLamps devices={discovered} onRegister={registerDiscovered} />
                 </>
             )}
 

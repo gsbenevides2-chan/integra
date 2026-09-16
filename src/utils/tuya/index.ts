@@ -3,20 +3,20 @@
  * their friendly name — the same name shown in the Smart Life app and in the dashboard — so
  * an automation reads like a sentence instead of a list of opaque ids.
  *
- * Control goes over the LAN when the device is reachable and falls back to the Tuya cloud
- * otherwise; callers do not choose, but the result says which path answered.
+ * Every call goes straight to the Tuya cloud API; state changes made outside a script arrive
+ * separately, pushed live over Pulsar.
  */
 import { DONT_TRACE_ID } from "core/instrumentation";
 import type { DeviceState, WorkMode } from "utils/tuya/capabilities";
-import type { DeviceCommand } from "utils/tuya/commands";
-import { type DeviceAccessResult, commandDevice, readDeviceState } from "utils/tuya/deviceAccess";
+import type { DeviceCommand } from "utils/tuya/commandTypes";
+import { commandDevice, readDeviceState } from "utils/tuya/deviceAccess";
 import { type Device, type PublicDevice, listDevices } from "utils/tuya/devices";
 import { db } from "core/db";
 import { tuyaDevices } from "core/db/schema";
 import { type Sensor, getLatestReadings, getReadingHistory, listSensors } from "utils/tuya/sensors";
 import { getStateHistory } from "utils/tuya/state";
 
-export type { DeviceState, DeviceCommand, DeviceAccessResult, Device, Sensor, PublicDevice };
+export type { DeviceState, DeviceCommand, Device, Sensor, PublicDevice };
 
 function normalize(value: string): string {
     return value.trim().toLowerCase();
@@ -68,7 +68,7 @@ export async function getDeviceState(
     traceId: string = DONT_TRACE_ID,
 ): Promise<DeviceState> {
     const device = await resolveDevice(nameOrId);
-    return (await readDeviceState(device, traceId)).state;
+    return readDeviceState(device, traceId);
 }
 
 export async function isOn(nameOrId: string, traceId: string = DONT_TRACE_ID): Promise<boolean> {
@@ -88,7 +88,7 @@ async function command(
     nameOrId: string,
     payload: DeviceCommand,
     traceId: string,
-): Promise<DeviceAccessResult> {
+): Promise<DeviceState> {
     const device = await resolveDevice(nameOrId);
     return commandDevice(device, payload, traceId);
 }

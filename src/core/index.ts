@@ -3,6 +3,7 @@ import { startMqttClients } from "core/triggers/mqtt";
 import { startRedisClients } from "core/triggers/redis";
 import { startEmailClients } from "core/triggers/email";
 import { startPostgresClients } from "core/triggers/postgres";
+import { startTuyaPulsar } from "utils/tuya/pulsar";
 import type { Trigger } from "core/triggers";
 
 export interface RegisterConfig {
@@ -56,6 +57,7 @@ const startClientsAndServers = () => {
     startRedisClients();
     startEmailClients();
     startPostgresClients();
+    startTuyaPulsar();
 };
 
 export default async function registerSettings(config: RegisterConfig) {

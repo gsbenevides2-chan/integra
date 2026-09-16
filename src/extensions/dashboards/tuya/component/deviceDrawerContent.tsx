@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { SignalIcon, TrashIcon } from "@heroicons/react/24/outline";
+import { TrashIcon } from "@heroicons/react/24/outline";
 import { Button } from "core/ui/components/button";
 import { useConfirm } from "core/ui/components/confirm/context";
 import { Input } from "core/ui/components/input";
@@ -24,17 +24,12 @@ export function DeviceDrawerContent({ device, isBusy, onCommand, onChanged, onDe
     const confirm = useConfirm();
 
     const [name, setName] = useState(device.name);
-    const [ip, setIp] = useState(device.ip ?? "");
-    const [localKey, setLocalKey] = useState("");
     const [isSaving, setIsSaving] = useState(false);
-    const [isProbing, setIsProbing] = useState(false);
     const [history, setHistory] = useState<HistoryPoint[]>([]);
 
     useEffect(() => {
         setName(device.name);
-        setIp(device.ip ?? "");
-        setLocalKey("");
-    }, [device.id, device.name, device.ip]);
+    }, [device.id, device.name]);
 
     useEffect(() => {
         let cancelled = false;
@@ -54,52 +49,29 @@ export function DeviceDrawerContent({ device, isBusy, onCommand, onChanged, onDe
     const save = useCallback(async () => {
         setIsSaving(true);
         const client = getTuyaEdenClient();
-        const { error } = await client.tuya.devices({ id: device.id }).put({
-            name,
-            ip: ip || null,
-            // An empty field means "keep the stored key", so it is simply not sent.
-            ...(localKey ? { localKey } : {}),
-        });
+        const { error } = await client.tuya.devices({ id: device.id }).put({ name });
         setIsSaving(false);
         if (error) {
-            showToast("Falha ao salvar a lâmpada", "error");
+            showToast("Falha ao salvar o dispositivo", "error");
             return;
         }
-        setLocalKey("");
-        showToast("Lâmpada salva", "success");
+        showToast("Dispositivo salvo", "success");
         onChanged();
-    }, [device.id, name, ip, localKey, showToast, onChanged]);
-
-    const probe = useCallback(async () => {
-        setIsProbing(true);
-        const client = getTuyaEdenClient();
-        const { data, error } = await client.tuya.devices({ id: device.id }).probe.post();
-        setIsProbing(false);
-        if (error || !data) {
-            showToast("Não foi possível conectar na lâmpada", "error");
-            return;
-        }
-        const result = data as unknown as { protocolVersion: string; bulbType: string };
-        showToast(
-            `Conectada: protocolo ${result.protocolVersion}, tipo ${result.bulbType}`,
-            "success",
-        );
-        onChanged();
-    }, [device.id, showToast, onChanged]);
+    }, [device.id, name, showToast, onChanged]);
 
     const remove = useCallback(async () => {
         const ok = await confirm({
-            title: "Remover lâmpada",
-            message: `Remover "${device.name}"? O histórico dela também será apagado.`,
+            title: "Remover dispositivo",
+            message: `Remover "${device.name}"? O histórico dele também será apagado.`,
         });
         if (!ok) return;
         const client = getTuyaEdenClient();
         const { error } = await client.tuya.devices({ id: device.id }).delete();
         if (error) {
-            showToast("Falha ao remover a lâmpada", "error");
+            showToast("Falha ao remover o dispositivo", "error");
             return;
         }
-        showToast("Lâmpada removida", "success");
+        showToast("Dispositivo removido", "success");
         onDeleted();
     }, [confirm, device.id, device.name, showToast, onDeleted]);
 
@@ -116,17 +88,6 @@ export function DeviceDrawerContent({ device, isBusy, onCommand, onChanged, onDe
             <section className="flex flex-col gap-2">
                 <h3 className="text-sm font-semibold text-mist-300">Configuração</h3>
                 <Input label="Nome" value={name} onChange={(e) => setName(e.target.value)} />
-                <Input
-                    label="IP (vazio = descoberta automática)"
-                    value={ip}
-                    onChange={(e) => setIp(e.target.value)}
-                />
-                <Input
-                    label="localKey (vazio = manter a atual)"
-                    type="password"
-                    value={localKey}
-                    onChange={(e) => setLocalKey(e.target.value)}
-                />
                 <Switch
                     checked={device.hidden}
                     onChange={async (hidden) => {
@@ -142,7 +103,7 @@ export function DeviceDrawerContent({ device, isBusy, onCommand, onChanged, onDe
                     label={device.hidden ? "Oculta no painel" : "Visível no painel"}
                 />
                 <p className="text-xs text-mist-400">
-                    Ocultar tira a lâmpada do painel sem parar o controle nem o histórico.
+                    Ocultar tira o dispositivo do painel sem parar o controle nem o histórico.
                 </p>
                 <dl className="text-xs text-mist-400 flex flex-wrap gap-x-4 gap-y-1">
                     <div>
@@ -150,20 +111,15 @@ export function DeviceDrawerContent({ device, isBusy, onCommand, onChanged, onDe
                         <dd className="inline font-mono">{device.tuyaDeviceId}</dd>
                     </div>
                     <div>
-                        <dt className="inline">Protocolo: </dt>
-                        <dd className="inline">{device.protocolVersion ?? "não detectado"}</dd>
-                    </div>
-                    <div>
                         <dt className="inline">Tipo: </dt>
-                        <dd className="inline">{device.bulbType ?? "não detectado"}</dd>
+                        <dd className="inline">
+                            {device.kind === "lamp" ? "Lâmpada" : "Interruptor"}
+                        </dd>
                     </div>
                 </dl>
                 <div className="flex flex-wrap gap-2">
                     <Button onClick={save} isLoading={isSaving}>
                         Salvar
-                    </Button>
-                    <Button variant="secondary" onClick={probe} isLoading={isProbing}>
-                        <SignalIcon className="size-4" /> Testar conexão
                     </Button>
                     <Button variant="secondary" onClick={remove}>
                         <TrashIcon className="size-4" /> Remover

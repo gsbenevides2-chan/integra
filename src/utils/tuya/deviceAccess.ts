@@ -1,11 +1,9 @@
 import { DONT_TRACE_ID } from "core/instrumentation";
 import type { DeviceState } from "utils/tuya/capabilities";
 import {
-    type TuyaStatusEntry,
     getDeviceDetail,
     getDeviceStatus,
     getDevicesStatus,
-    listAccountDevices,
     sendDeviceCommands,
 } from "utils/tuya/cloud/client";
 import {
@@ -14,57 +12,10 @@ import {
     deviceCommandToCloudCommands,
     switchChannelsToCloudCommands,
 } from "utils/tuya/cloud/deviceState";
-import { applyCommand, type DeviceCommand } from "utils/tuya/commands";
+import type { DeviceCommand } from "utils/tuya/commandTypes";
 import type { Device } from "utils/tuya/devices";
-import { dropConnection, readState } from "utils/tuya/registry";
 
-export type DeviceTransport = "local" | "cloud";
-
-export interface DeviceAccessResult {
-    state: DeviceState;
-    transport: DeviceTransport;
-}
-
-/**
- * The LAN path is instantaneous and keeps working when the internet is down, so it is always
- * tried first. The cloud covers the rest: a device on another network, one that dropped off
- * Wi-Fi discovery, or a bulb whose local key went stale after a re-pair.
- */
-export async function readDeviceState(
-    device: Device,
-    traceId: string,
-): Promise<DeviceAccessResult> {
-    try {
-        return { state: await readState(device), transport: "local" };
-    } catch {
-        dropConnection(device.id);
-        return { state: await readStateFromCloud(device, traceId), transport: "cloud" };
-    }
-}
-
-export async function commandDevice(
-    device: Device,
-    command: DeviceCommand,
-    traceId: string,
-): Promise<DeviceAccessResult> {
-    try {
-        return { state: await applyCommand(device, command), transport: "local" };
-    } catch (localError) {
-        dropConnection(device.id);
-        try {
-            return {
-                state: await commandLampViaCloud(device, command, traceId),
-                transport: "cloud",
-            };
-        } catch (cloudError) {
-            // Surface both, since "it did not work" is far less useful than knowing the LAN
-            // timed out but the cloud rejected the colour value.
-            throw new Error(`Local: ${messageOf(localError)} | Cloud: ${messageOf(cloudError)}`);
-        }
-    }
-}
-
-async function readStateFromCloud(device: Device, traceId: string): Promise<DeviceState> {
+export async function readDeviceState(device: Device, traceId: string): Promise<DeviceState> {
     const [status, detail] = await Promise.all([
         getDeviceStatus(device.tuyaDeviceId, traceId),
         getDeviceDetail(device.tuyaDeviceId, traceId),
@@ -73,9 +24,7 @@ async function readStateFromCloud(device: Device, traceId: string): Promise<Devi
 }
 
 /**
- * Reads a whole set of devices from the cloud in two calls, however many there are. Reading
- * them one by one costs two requests each, which a sweep running every minute would turn
- * into thousands of calls a day for no extra information.
+ * Reads a whole set of devices from the cloud in one call, however many there are.
  */
 export async function readStatesFromCloud(
     devices: Device[],
@@ -83,37 +32,30 @@ export async function readStatesFromCloud(
 ): Promise<Map<string, DeviceState>> {
     if (devices.length === 0) return new Map();
 
-    const [statuses, account] = await Promise.all([
-        getDevicesStatus(
-            devices.map((device) => device.tuyaDeviceId),
-            traceId,
-        ),
-        listAccountDevices(traceId),
-    ]);
-    const online = new Map(account.map((entry) => [entry.id, entry.online]));
+    const statuses = await getDevicesStatus(
+        devices.map((device) => device.tuyaDeviceId),
+        traceId,
+    );
 
     const states = new Map<string, DeviceState>();
     for (const device of devices) {
-        states.set(
-            device.id,
-            stateFromCloud(
-                device,
-                statuses.get(device.tuyaDeviceId) ?? [],
-                online.get(device.tuyaDeviceId) ?? false,
-            ),
-        );
+        const status = statuses.get(device.tuyaDeviceId) ?? [];
+        states.set(device.id, stateFromCloud(device, status, status.length > 0));
     }
     return states;
 }
 
-/** The cloud reports a relay's channels and a bulb's colour under entirely different codes. */
-function stateFromCloud(device: Device, status: TuyaStatusEntry[], online: boolean): DeviceState {
+function stateFromCloud(
+    device: Device,
+    status: Awaited<ReturnType<typeof getDeviceStatus>>,
+    online: boolean,
+): DeviceState {
     return device.kind === "switch"
         ? cloudStatusToSwitchState(status, online)
         : cloudStatusToDeviceState(status, online);
 }
 
-async function commandLampViaCloud(
+export async function commandDevice(
     device: Device,
     command: DeviceCommand,
     traceId: string,
@@ -131,8 +73,8 @@ async function commandLampViaCloud(
 
     // Tuya's status shadow trails the command by a second or two, so reading it back here
     // would return the value from before the change and make the UI snap backwards. The
-    // cloud accepted the command, so the commanded values are the truthful answer; the next
-    // poll reconciles against the device either way.
+    // cloud accepted the command, so the commanded values are the truthful answer; Pulsar
+    // reconciles against the device's own report either way.
     const previous =
         device.kind === "switch"
             ? cloudStatusToSwitchState(status, true)
@@ -165,10 +107,6 @@ function applyCommandToState(state: DeviceState, command: DeviceCommand): Device
                   ? "white"
                   : state.workMode),
     };
-}
-
-function messageOf(error: unknown): string {
-    return error instanceof Error ? error.message : String(error);
 }
 
 /** For callers with no trace of their own, such as the dashboard's polling routes. */

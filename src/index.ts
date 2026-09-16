@@ -19,12 +19,7 @@ import { trainStatusRoutes } from "extensions/scripts/train-status/routes";
 import { trainStatusCheckCron } from "extensions/scripts/train-status/cron";
 import { executionLogsRoutes } from "extensions/scripts/execution-logs/routes";
 import { googleAccountsRoutes } from "extensions/scripts/google-accounts/routes";
-import {
-    tuyaDiscoveryCron,
-    tuyaCatalogueCron,
-    tuyaSensorReadingsCron,
-    tuyaSyncCron,
-} from "extensions/scripts/tuya/cron";
+import { tuyaHistoryPruneCron } from "extensions/scripts/tuya/cron";
 import { tuyaRoutes } from "extensions/scripts/tuya/routes";
 import { gmailProcessRecipts } from "extensions/scripts/gmail/recipts";
 //import { deviceStateLog, doorOpenAlert, motionLightsUp } from "extensions/scripts/tuya-automations";
@@ -49,10 +44,7 @@ await registerSettings({
         trainStatusCheckCron,
         executionLogsRoutes,
         googleAccountsRoutes,
-        tuyaDiscoveryCron,
-        tuyaSyncCron,
-        tuyaCatalogueCron,
-        tuyaSensorReadingsCron,
+        tuyaHistoryPruneCron,
         tuyaRoutes,
         gmailProcessRecipts,
         /*

@@ -1,4 +1,4 @@
-import { and, desc, eq, gt, inArray, lt, sql } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, lt } from "drizzle-orm";
 import { db } from "core/db";
 import { tuyaSensorReadings, tuyaSensors } from "core/db/schema";
 
@@ -57,31 +57,48 @@ export async function getSensor(id: string): Promise<Sensor | null> {
     return sensor ?? null;
 }
 
-export interface SensorUpsert {
-    tuyaDeviceId: string;
-    name: string;
-    kind: SensorKind;
-    category: string;
-    online: boolean;
+export async function getSensorByTuyaId(tuyaDeviceId: string): Promise<Sensor | null> {
+    const [sensor] = await db
+        .select()
+        .from(tuyaSensors)
+        .where(eq(tuyaSensors.tuyaDeviceId, tuyaDeviceId))
+        .limit(1);
+    return sensor ?? null;
 }
 
-/** Keeps the catalogue in step with the account without clobbering a renamed sensor. */
-export async function upsertSensors(devices: SensorUpsert[]): Promise<void> {
-    if (devices.length === 0) return;
+export async function setSensorOnline(id: string, online: boolean): Promise<void> {
+    await db.update(tuyaSensors).set({ online }).where(eq(tuyaSensors.id, id));
+}
 
-    const now = new Date();
-    await db
+export interface SensorInput {
+    tuyaDeviceId: string;
+    name: string;
+    kind?: SensorKind;
+    category?: string | null;
+    enabled?: boolean;
+    hidden?: boolean;
+}
+
+/** The only way a sensor is registered now: pasting in its Tuya `deviceId` by hand. */
+export async function createSensor(input: SensorInput): Promise<Sensor> {
+    const [created] = await db
         .insert(tuyaSensors)
-        .values(devices.map((device) => ({ ...device, lastSeenAt: now })))
-        .onConflictDoUpdate({
-            target: tuyaSensors.tuyaDeviceId,
-            set: {
-                online: sql`EXCLUDED.online`,
-                category: sql`EXCLUDED.category`,
-                kind: sql`EXCLUDED.kind`,
-                lastSeenAt: new Date(),
-            },
-        });
+        .values({
+            tuyaDeviceId: input.tuyaDeviceId,
+            name: input.name,
+            kind: input.kind ?? "unknown",
+            category: input.category ?? null,
+            enabled: input.enabled ?? true,
+            hidden: input.hidden ?? false,
+        })
+        .returning();
+
+    if (!created) throw new Error("Sensor not created");
+    return created;
+}
+
+export async function deleteSensor(id: string): Promise<void> {
+    await db.delete(tuyaSensors).where(eq(tuyaSensors.id, id));
 }
 
 export async function setEnabled(id: string, enabled: boolean): Promise<void> {
@@ -186,17 +203,6 @@ export async function getReadingHistory(
         hasMore,
         nextCursor: hasMore ? (readings.at(-1)?.recordedAt.toISOString() ?? null) : null,
     };
-}
-
-/** Guards against re-inserting events a previous run already stored. */
-export async function newestReadingAt(sensorId: string): Promise<Date | null> {
-    const [row] = await db
-        .select({ recordedAt: tuyaSensorReadings.recordedAt })
-        .from(tuyaSensorReadings)
-        .where(eq(tuyaSensorReadings.sensorId, sensorId))
-        .orderBy(desc(tuyaSensorReadings.recordedAt))
-        .limit(1);
-    return row?.recordedAt ?? null;
 }
 
 export async function pruneReadings(olderThan: Date): Promise<void> {

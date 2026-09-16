@@ -1,4 +1,4 @@
-import { BoltIcon, CloudIcon, LightBulbIcon } from "@heroicons/react/24/outline";
+import { BoltIcon, LightBulbIcon } from "@heroicons/react/24/outline";
 import { Slider } from "core/ui/components/slider";
 import { Switch } from "core/ui/components/switch";
 import { brightnessCommand, currentHex, effectiveBrightness, isColourMode } from "../lampColor";
@@ -51,14 +51,6 @@ export function DeviceCard({ device, isBusy, onCommand, onOpen }: Props) {
                     {device.hidden && (
                         <span className="text-xs rounded-full px-2 py-0.5 bg-gray-700 text-mist-300">
                             Oculta
-                        </span>
-                    )}
-                    {state.transport === "cloud" && state.online && (
-                        <span
-                            title="A rede local não respondeu; controlada pela nuvem da Tuya"
-                            className="text-xs rounded-full px-2 py-0.5 bg-sky-950 text-sky-300 flex items-center gap-1"
-                        >
-                            <CloudIcon className="size-3.5" /> Nuvem
                         </span>
                     )}
                     <span
