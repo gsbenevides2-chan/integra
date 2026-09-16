@@ -2,6 +2,14 @@ import { db } from "core/db";
 import { runEvents, runs } from "extensions/db/schema";
 import { and, asc, desc, eq, gte, lte, type SQL } from "drizzle-orm";
 import type { RunDocument, RunFilters, TracerEvent } from "./types";
+import { isContinuousWorkflow } from "./utils";
+
+/**
+ * A continuous run (e.g. Tuya Pulsar) logs one event per message for as long as the
+ * connection stays up, so it never gets a natural upper bound the way a normal run does.
+ * Capped to the most recent events instead of fetching the whole, ever-growing history.
+ */
+const CONTINUOUS_RUN_EVENT_LIMIT = 200;
 
 function calculateDurationMs(startTime: Date, endTime?: Date | null): number | null {
     if (!endTime) return null;
@@ -74,7 +82,8 @@ export async function fetchRunByTraceId(traceId: string) {
     const [run] = await db.select().from(runs).where(eq(runs.traceId, traceId)).limit(1);
     if (!run) return null;
 
-    const events = await db
+    const continuous = isContinuousWorkflow(run.workflowType);
+    const rows = await db
         .select({
             eventId: runEvents.id,
             eventName: runEvents.eventName,
@@ -84,7 +93,13 @@ export async function fetchRunByTraceId(traceId: string) {
         })
         .from(runEvents)
         .where(eq(runEvents.runId, run.id))
-        .orderBy(asc(runEvents.dateTime));
+        // A continuous run cares about its latest activity, not the very first message it
+        // ever logged, so it sorts newest-first and gets capped; a normal run is small
+        // enough to just show start to finish.
+        .orderBy(continuous ? desc(runEvents.dateTime) : asc(runEvents.dateTime))
+        .limit(continuous ? CONTINUOUS_RUN_EVENT_LIMIT : 10_000);
+
+    const events = continuous ? rows.slice().reverse() : rows;
 
     return {
         traceId: run.traceId,

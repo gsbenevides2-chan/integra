@@ -1,6 +1,10 @@
 import { getExecutionLogsEdenClient } from "extensions/scripts/execution-logs/client";
 import type { RunDocument } from "extensions/scripts/execution-logs/types";
-import { formatDateTime, formatDuration } from "extensions/scripts/execution-logs/utils";
+import {
+    formatDateTime,
+    formatDuration,
+    isContinuousWorkflow,
+} from "extensions/scripts/execution-logs/utils";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { FilterValues } from "../filterBar";
 
@@ -149,20 +153,30 @@ export function RunsTable({ filters, onSelectRun }: Props) {
                                     {run.endTime ? formatDateTime(new Date(run.endTime)) : "-"}
                                 </td>
                                 <td className="px-3 py-1.5">
-                                    <span
-                                        className={`text-xs px-1.5 py-0.5 rounded-sm font-semibold ${
-                                            !run.endTime
-                                                ? "bg-yellow-900 text-yellow-300"
-                                                : run.status === "ERROR"
-                                                  ? "bg-red-900 text-red-300"
-                                                  : "bg-green-900 text-green-300"
-                                        }`}
-                                    >
-                                        {run.endTime ? (run.status ?? "SUCCESS") : "running"}
-                                    </span>
+                                    {!run.endTime && isContinuousWorkflow(run.workflowType) ? (
+                                        <span className="text-xs px-1.5 py-0.5 rounded-sm font-semibold bg-sky-900 text-sky-300">
+                                            streaming
+                                        </span>
+                                    ) : (
+                                        <span
+                                            className={`text-xs px-1.5 py-0.5 rounded-sm font-semibold ${
+                                                !run.endTime
+                                                    ? "bg-yellow-900 text-yellow-300"
+                                                    : run.status === "ERROR"
+                                                      ? "bg-red-900 text-red-300"
+                                                      : "bg-green-900 text-green-300"
+                                            }`}
+                                        >
+                                            {run.endTime ? (run.status ?? "SUCCESS") : "running"}
+                                        </span>
+                                    )}
                                 </td>
                                 <td className="px-3 py-1.5">
-                                    {run.durationMs != null ? formatDuration(run.durationMs) : "-"}
+                                    {isContinuousWorkflow(run.workflowType)
+                                        ? "—"
+                                        : run.durationMs != null
+                                          ? formatDuration(run.durationMs)
+                                          : "-"}
                                 </td>
                             </tr>
                         ))}

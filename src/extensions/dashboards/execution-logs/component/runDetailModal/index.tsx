@@ -3,7 +3,11 @@ import { IconButton } from "core/ui/components/iconButton";
 import { useToast } from "core/ui/components/toast";
 import { getExecutionLogsEdenClient } from "extensions/scripts/execution-logs/client";
 import type { RunDocument } from "extensions/scripts/execution-logs/types";
-import { formatDateTime, formatDuration } from "extensions/scripts/execution-logs/utils";
+import {
+    formatDateTime,
+    formatDuration,
+    isContinuousWorkflow,
+} from "extensions/scripts/execution-logs/utils";
 import { useCallback, useEffect, useState } from "react";
 import { EventList } from "../eventList";
 import { JsonTreeView } from "../jsonTreeView";
@@ -106,6 +110,10 @@ export function RunDetailModal({ isOpen, onClose, traceId }: Props) {
                                     >
                                         {run.status ?? "SUCCESS"}
                                     </span>
+                                ) : isContinuousWorkflow(run.workflowType) ? (
+                                    <span className="text-xs px-2 py-0.5 rounded-sm font-semibold bg-sky-900 text-sky-300">
+                                        🔵 Streaming
+                                    </span>
                                 ) : (
                                     <span className="text-xs px-2 py-0.5 rounded-sm font-semibold bg-yellow-900 text-yellow-300">
                                         🟡 In progress
@@ -163,8 +171,15 @@ export function RunDetailModal({ isOpen, onClose, traceId }: Props) {
 
                         <div>
                             <h4 className="mb-2 font-semibold text-sm">
-                                Events ({run.events.length})
+                                Events ({run.events.length}
+                                {isContinuousWorkflow(run.workflowType) ? ", most recent" : ""})
                             </h4>
+                            {isContinuousWorkflow(run.workflowType) && (
+                                <p className="mb-2 text-xs text-mist-400">
+                                    This trigger keeps one continuous run for its whole connection,
+                                    so only the latest events are shown here.
+                                </p>
+                            )}
                             <EventList events={run.events} />
                         </div>
                     </div>

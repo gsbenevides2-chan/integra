@@ -107,13 +107,17 @@ function EventCard({ event }: { event: TracerEvent }) {
                             {hasRequestProp ? (
                                 <div>
                                     <span className="font-bold text-xs">Request</span>
-                                    <JsonTreeView data={eventData!.request as Record<string, unknown>} />
+                                    <JsonTreeView
+                                        data={eventData!.request as Record<string, unknown>}
+                                    />
                                 </div>
                             ) : null}
                             {hasResponseProp ? (
                                 <div>
                                     <span className="font-bold text-xs">Response</span>
-                                    <JsonTreeView data={eventData!.response as Record<string, unknown>} />
+                                    <JsonTreeView
+                                        data={eventData!.response as Record<string, unknown>}
+                                    />
                                 </div>
                             ) : null}
                         </div>

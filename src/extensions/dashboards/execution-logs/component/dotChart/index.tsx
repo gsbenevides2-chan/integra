@@ -1,3 +1,4 @@
+import { isContinuousWorkflow } from "extensions/scripts/execution-logs/utils";
 import type { RunDocument } from "extensions/scripts/execution-logs/types";
 import { useCallback, useMemo, useState } from "react";
 import {
@@ -92,13 +93,17 @@ export function DotChart({ runs, onSelectRun }: Props) {
 
     const data = useMemo<ChartPoint[]>(
         () =>
-            runs.map((run) => ({
-                traceId: run.traceId,
-                triggerId: run.triggerId,
-                startTime: new Date(run.startTime).getTime(),
-                durationMs: run.durationMs ?? 1,
-                status: run.status ?? "running",
-            })),
+            runs
+                // Continuous runs (e.g. Tuya Pulsar) never end and have no real duration —
+                // plotting them would just be a permanent fake dot sitting on the axis floor.
+                .filter((run) => !isContinuousWorkflow(run.workflowType))
+                .map((run) => ({
+                    traceId: run.traceId,
+                    triggerId: run.triggerId,
+                    startTime: new Date(run.startTime).getTime(),
+                    durationMs: run.durationMs ?? 1,
+                    status: run.status ?? "running",
+                })),
         [runs],
     );
 

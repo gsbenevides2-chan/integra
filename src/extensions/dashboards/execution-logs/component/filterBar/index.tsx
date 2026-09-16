@@ -42,8 +42,7 @@ export function FilterBar({ onFilterChange }: Props) {
 
     const emit = useCallback(
         (overrides: Partial<FilterValues & { preset: string | null }>) => {
-            const presetLabel =
-                overrides.preset !== undefined ? overrides.preset : activePreset;
+            const presetLabel = overrides.preset !== undefined ? overrides.preset : activePreset;
             const preset = DATE_PRESETS.find((p) => p.label === presetLabel);
             onFilterChange({
                 workflowType: (overrides.workflowType ?? workflowType) || undefined,
