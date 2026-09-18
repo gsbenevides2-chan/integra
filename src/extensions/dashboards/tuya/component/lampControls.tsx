@@ -6,7 +6,9 @@ import type { Hsv } from "utils/tuya/color";
 import {
     COLOR_PRESETS,
     HUE_STOPS,
+    WHITE_START,
     WHITE_STOPS,
+    WHITE_SWEEP,
     currentHex,
     hexFromHsv,
     hsvFromHex,
@@ -16,10 +18,6 @@ import {
     whiteHex,
 } from "../lampColor";
 import type { Device, DeviceCommand } from "../types";
-
-/** The white arc is open at the bottom, warm on the left and cool on the right. */
-const WHITE_START = 210;
-const WHITE_SWEEP = 300;
 
 type Tab = "white" | "colour";
 

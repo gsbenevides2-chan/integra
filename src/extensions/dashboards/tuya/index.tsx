@@ -7,12 +7,21 @@ import { Select } from "core/ui/components/select";
 import { useToast } from "core/ui/components/toast";
 import type { DashboardData } from "core/ui/createDashboard";
 import { getTuyaEdenClient } from "extensions/scripts/tuya/client";
+import { ApplyPresetModal } from "./component/applyPresetModal";
 import { DeviceCard } from "./component/deviceCard";
 import { DeviceDrawerContent } from "./component/deviceDrawerContent";
 import { Modal } from "./component/modal";
+import { PresetCard } from "./component/presetCard";
+import { PresetDrawerContent } from "./component/presetDrawerContent";
+import {
+    EMPTY_PRESET_DRAFT,
+    PresetForm,
+    presetDraftToBody,
+    type PresetDraft,
+} from "./component/presetForm";
 import { SensorCard } from "./component/sensorCard";
 import { SensorDrawerContent } from "./component/sensorDrawerContent";
-import type { Device, DeviceCommand, DeviceState, Sensor, DeviceKind } from "./types";
+import type { Device, DeviceCommand, DeviceState, Preset, Sensor, DeviceKind } from "./types";
 
 const POLL_INTERVAL_MS = 5000;
 
@@ -172,18 +181,68 @@ function NewSensorForm({
     );
 }
 
+function NewPresetForm({
+    isOpen,
+    onCreated,
+    onClose,
+}: {
+    isOpen: boolean;
+    onCreated: () => void;
+    onClose: () => void;
+}) {
+    const { showToast } = useToast();
+    const [draft, setDraft] = useState<PresetDraft>(EMPTY_PRESET_DRAFT);
+    const [isSaving, setIsSaving] = useState(false);
+
+    const submit = useCallback(async () => {
+        if (!draft.name) {
+            showToast("Dê um nome ao modo", "error");
+            return;
+        }
+        setIsSaving(true);
+        const { error } = await getTuyaEdenClient().tuya.presets.post(presetDraftToBody(draft));
+        setIsSaving(false);
+        if (error) {
+            showToast("Falha ao cadastrar o modo", "error");
+            return;
+        }
+        showToast("Modo cadastrado", "success");
+        setDraft(EMPTY_PRESET_DRAFT);
+        onCreated();
+        onClose();
+    }, [draft, showToast, onCreated, onClose]);
+
+    return (
+        <Modal isOpen={isOpen} onClose={onClose} title="Novo modo">
+            <PresetForm draft={draft} onChange={setDraft} />
+            <div className="flex justify-end gap-2">
+                <Button variant="secondary" onClick={onClose}>
+                    Cancelar
+                </Button>
+                <Button onClick={submit} isLoading={isSaving}>
+                    Cadastrar
+                </Button>
+            </div>
+        </Modal>
+    );
+}
+
 function Dashboard() {
     const { showToast } = useToast();
     const [devices, setDevices] = useState<Device[]>([]);
     const [sensors, setSensors] = useState<Sensor[]>([]);
+    const [presets, setPresets] = useState<Preset[]>([]);
     const [openSensorId, setOpenSensorId] = useState<string | null>(null);
     const [showHidden, setShowHidden] = useState(false);
     const [showHiddenDevices, setShowHiddenDevices] = useState(false);
     const [isLoading, setIsLoading] = useState(true);
     const [busyDeviceIds, setBusyDeviceIds] = useState<string[]>([]);
     const [openDeviceId, setOpenDeviceId] = useState<string | null>(null);
+    const [openPresetId, setOpenPresetId] = useState<string | null>(null);
+    const [applyPresetId, setApplyPresetId] = useState<string | null>(null);
     const [showNewDeviceForm, setShowNewDeviceForm] = useState(false);
     const [showNewSensorForm, setShowNewSensorForm] = useState(false);
+    const [showNewPresetForm, setShowNewPresetForm] = useState(false);
 
     // A command is answered by the device itself, so a poll landing mid-flight would
     // overwrite the optimistic value with a reading taken before the change.
@@ -192,9 +251,10 @@ function Dashboard() {
     const fetchAll = useCallback(async (useLoading: boolean) => {
         if (useLoading) setIsLoading(true);
         const client = getTuyaEdenClient();
-        const [devicesRes, sensorsRes] = await Promise.all([
+        const [devicesRes, sensorsRes, presetsRes] = await Promise.all([
             client.tuya.devices.get({ query: { includeHidden: "true" } }),
             client.tuya.sensors.get({ query: { includeHidden: "true" } }),
+            client.tuya.presets.get(),
         ]);
         if (devicesRes.data) {
             const fresh = devicesRes.data as unknown as Device[];
@@ -207,6 +267,7 @@ function Dashboard() {
             );
         }
         if (sensorsRes.data) setSensors(sensorsRes.data as unknown as Sensor[]);
+        if (presetsRes.data) setPresets(presetsRes.data as unknown as Preset[]);
         if (useLoading) setIsLoading(false);
     }, []);
 
@@ -259,6 +320,8 @@ function Dashboard() {
     const visibleSwitches = visibleDevices.filter((device) => device.kind === "switch");
     const shownLamps = shownDevices.filter((device) => device.kind === "lamp");
     const shownSwitches = shownDevices.filter((device) => device.kind === "switch");
+    const openPreset = presets.find((preset) => preset.id === openPresetId) ?? null;
+    const applyPreset = presets.find((preset) => preset.id === applyPresetId) ?? null;
     const openSensor = sensors.find((sensor) => sensor.id === openSensorId) ?? null;
     const visibleSensors = sensors.filter((sensor) => !sensor.hidden);
     const hiddenSensors = sensors.filter((sensor) => sensor.hidden);
@@ -269,6 +332,9 @@ function Dashboard() {
             <div className="flex items-center justify-between flex-wrap gap-2">
                 <h1 className="text-xl">Casa</h1>
                 <div className="flex gap-2">
+                    <Button variant="secondary" onClick={() => setShowNewPresetForm(true)}>
+                        <PlusIcon className="size-4" /> Novo modo
+                    </Button>
                     <Button variant="secondary" onClick={() => setShowNewSensorForm(true)}>
                         <PlusIcon className="size-4" /> Novo sensor
                     </Button>
@@ -287,6 +353,11 @@ function Dashboard() {
                 isOpen={showNewSensorForm}
                 onCreated={() => fetchAll(false)}
                 onClose={() => setShowNewSensorForm(false)}
+            />
+            <NewPresetForm
+                isOpen={showNewPresetForm}
+                onCreated={() => fetchAll(false)}
+                onClose={() => setShowNewPresetForm(false)}
             />
 
             {isLoading ? (
@@ -389,6 +460,29 @@ function Dashboard() {
                             </div>
                         )}
                     </section>
+
+                    <section className="flex flex-col gap-2">
+                        <h2 className="text-sm font-semibold text-mist-300">
+                            Modos ({presets.length})
+                        </h2>
+                        {presets.length === 0 ? (
+                            <p className="text-sm text-mist-400">
+                                Nenhum modo ainda. Cadastre um jeito de deixar a lâmpada para
+                                reaplicar quando quiser.
+                            </p>
+                        ) : (
+                            <div className="grid gap-3 grid-cols-[repeat(auto-fill,minmax(240px,1fr))]">
+                                {presets.map((preset) => (
+                                    <PresetCard
+                                        key={preset.id}
+                                        preset={preset}
+                                        onOpen={() => setOpenPresetId(preset.id)}
+                                        onApply={() => setApplyPresetId(preset.id)}
+                                    />
+                                ))}
+                            </div>
+                        )}
+                    </section>
                 </>
             )}
 
@@ -419,6 +513,27 @@ function Dashboard() {
                     <SensorDrawerContent sensor={openSensor} onChanged={() => fetchAll(false)} />
                 )}
             </Drawer>
+            <Drawer
+                isOpen={!!openPreset}
+                onClose={() => setOpenPresetId(null)}
+                title={openPreset?.name}
+            >
+                {openPreset && (
+                    <PresetDrawerContent
+                        preset={openPreset}
+                        onChanged={() => fetchAll(false)}
+                        onDeleted={() => {
+                            setOpenPresetId(null);
+                            fetchAll(false);
+                        }}
+                    />
+                )}
+            </Drawer>
+            <ApplyPresetModal
+                preset={applyPreset}
+                devices={visibleLamps}
+                onClose={() => setApplyPresetId(null)}
+            />
         </div>
     );
 }

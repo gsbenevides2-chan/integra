@@ -52,6 +52,20 @@ export const tuyaDeviceStateHistory = tuya.table(
     ],
 );
 
+/** A reusable lamp look — colour/brightness/temp saved once, applied to any device later. */
+export const tuyaPresets = tuya.table("presets", {
+    id: text()
+        .primaryKey()
+        .$defaultFn(() => crypto.randomUUID()),
+    name: text().notNull(),
+    power: boolean().notNull().default(true),
+    brightness: integer(),
+    colorTemp: integer(),
+    colorHex: text(),
+    workMode: text(),
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+});
+
 export const tuyaSensorKind = tuya.enum("sensor_kind", [
     "temperature_humidity",
     "door",

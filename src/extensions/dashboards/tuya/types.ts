@@ -45,6 +45,17 @@ export interface DeviceCommand {
     channels?: Record<string, boolean>;
 }
 
+export interface Preset {
+    id: string;
+    name: string;
+    power: boolean;
+    brightness: number | null;
+    colorTemp: number | null;
+    colorHex: string | null;
+    workMode: WorkMode | null;
+    createdAt: string;
+}
+
 export type SensorKind = "temperature_humidity" | "door" | "motion" | "unknown";
 
 export interface Sensor {

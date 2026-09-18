@@ -4,6 +4,10 @@ import type { DeviceCommand, DeviceState } from "./types";
 /** 0% is the warmest reading the lamp reports and 100% the coolest. */
 export const WHITE_STOPS = ["#ffb46b", "#f6f1ea", "#8ec2ff"];
 
+/** The white arc is open at the bottom, warm on the left and cool on the right. */
+export const WHITE_START = 210;
+export const WHITE_SWEEP = 300;
+
 /** The hue ring, sampled every 30°. */
 export const HUE_STOPS = Array.from({ length: 13 }, (_, index) => `hsl(${index * 30} 100% 50%)`);
 

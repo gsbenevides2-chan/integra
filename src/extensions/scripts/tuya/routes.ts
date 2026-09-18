@@ -23,6 +23,14 @@ import {
     setEnabled,
     setHidden,
 } from "utils/tuya/sensors";
+import {
+    applyPreset,
+    createPreset,
+    deletePreset,
+    getPreset,
+    listPresets,
+    updatePreset,
+} from "utils/tuya/presets";
 
 const deviceBody = z.object({
     name: z.string().min(1),
@@ -48,6 +56,24 @@ const commandBody = z
         channels: z.record(z.string(), z.boolean()).optional(),
     })
     .refine((value) => Object.keys(value).length > 0, "At least one field is required");
+
+const presetBody = z.object({
+    name: z.string().min(1),
+    power: z.boolean().optional(),
+    brightness: z.number().min(0).max(100).nullable().optional(),
+    colorTemp: z.number().min(0).max(100).nullable().optional(),
+    colorHex: z
+        .string()
+        .regex(/^#[0-9a-fA-F]{6}$/, "Expected a #rrggbb colour")
+        .nullable()
+        .optional(),
+    // A saved preset is never "scene"/"music" — those are Tuya's own native bulb work modes.
+    workMode: z.enum(["white", "colour"]).nullable().optional(),
+});
+
+const presetUpdateBody = presetBody.partial();
+
+const applyPresetBody = z.object({ deviceId: z.string().min(1) });
 
 const sensorBody = z.object({
     name: z.string().min(1),
@@ -120,6 +146,38 @@ export const tuyaElysiaClient = new Elysia({ prefix: "/tuya" })
         async ({ params, query }) =>
             getStateHistory(params.id, query.before ? new Date(query.before) : undefined),
         { query: z.object({ before: z.string().optional() }) },
+    )
+    .get("/presets", async () => listPresets())
+    .post("/presets", async ({ body }) => createPreset(body), { body: presetBody })
+    .put(
+        "/presets/:id",
+        async ({ params, body }) => {
+            const updated = await updatePreset(params.id, body);
+            if (!updated) return status(404, { error: "Preset not found" });
+            return updated;
+        },
+        { body: presetUpdateBody },
+    )
+    .delete("/presets/:id", async ({ params }) => {
+        await deletePreset(params.id);
+        return { ok: true };
+    })
+    .post(
+        "/presets/:id/apply",
+        async ({ params, body }) => {
+            const preset = await getPreset(params.id);
+            if (!preset) return status(404, { error: "Preset not found" });
+            const device = await getDevice(body.deviceId);
+            if (!device) return status(404, { error: "Device not found" });
+            try {
+                return await applyPreset(params.id, body.deviceId, UNTRACED);
+            } catch (error) {
+                return status(503, {
+                    error: error instanceof Error ? error.message : String(error),
+                });
+            }
+        },
+        { body: applyPresetBody },
     )
     .get(
         "/sensors",
