@@ -326,6 +326,8 @@ function Dashboard() {
     const visibleSensors = sensors.filter((sensor) => !sensor.hidden);
     const hiddenSensors = sensors.filter((sensor) => sensor.hidden);
     const shownSensors = showHidden ? sensors : visibleSensors;
+    const firstOnlineLamp =
+        visibleLamps.find((device) => device.state.online) ?? visibleLamps[0];
 
     return (
         <div className="p-3 flex flex-col gap-4">
@@ -478,6 +480,23 @@ function Dashboard() {
                                         preset={preset}
                                         onOpen={() => setOpenPresetId(preset.id)}
                                         onApply={() => setApplyPresetId(preset.id)}
+                                        firstOnlineDeviceName={firstOnlineLamp?.name}
+                                        onQuickApply={
+                                            firstOnlineLamp
+                                                ? () =>
+                                                      sendCommand(firstOnlineLamp, {
+                                                          power: preset.power,
+                                                          brightness:
+                                                              preset.brightness ?? undefined,
+                                                          colorTemp:
+                                                              preset.colorTemp ?? undefined,
+                                                          colorHex:
+                                                              preset.colorHex ?? undefined,
+                                                          workMode:
+                                                              preset.workMode ?? undefined,
+                                                      })
+                                                : undefined
+                                        }
                                     />
                                 ))}
                             </div>
