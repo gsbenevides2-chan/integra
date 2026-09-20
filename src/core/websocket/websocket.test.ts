@@ -82,21 +82,3 @@ describe("WebSocket broadcast manager", () => {
         expect(parsed.traceId).toBe("test-trace-3");
     });
 });
-
-// ---------------------------------------------------------------------------
-// Integration: instrumentation + broadcast
-// ---------------------------------------------------------------------------
-describe("WebSocket instrumentation integration", () => {
-    it("broadcasts on startTracer / endTracer / addTracerEvent", () => {
-        expect(true).toBe(true);
-    });
-});
-
-// ---------------------------------------------------------------------------
-// E2E: WebSocket endpoint
-// ---------------------------------------------------------------------------
-describe("WebSocket endpoint E2E", () => {
-    it("connects, receives events, disconnects", () => {
-        expect(true).toBe(true);
-    });
-});
