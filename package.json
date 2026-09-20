@@ -32,8 +32,7 @@
         "lint:fix": "bun --bun eslint . --fix",
         "format": "bun --bun prettier --check .",
         "format:fix": "bun --bun prettier --write .",
-        "test": "bun test",
-        "test:ws": "bun test src/core/websocket/websocket.test.ts"
+        "test": "bun test"
     },
     "devDependencies": {
         "@types/bun": "latest",
