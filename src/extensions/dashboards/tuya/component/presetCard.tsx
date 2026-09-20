@@ -39,7 +39,7 @@ export function PresetCard({ preset, onOpen, onApply, firstOnlineDeviceName, onQ
                 </span>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex flex-col gap-2">
                 {onQuickApply && firstOnlineDeviceName && (
                     <Button
                         variant="secondary"
