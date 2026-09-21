@@ -1,14 +1,16 @@
 import { useCallback, useEffect, useState } from "react";
-import { TrashIcon } from "@heroicons/react/24/outline";
+import { BookmarkIcon, TrashIcon } from "@heroicons/react/24/outline";
 import { Button } from "core/ui/components/button";
 import { useConfirm } from "core/ui/components/confirm/context";
 import { Input } from "core/ui/components/input";
 import { Switch } from "core/ui/components/switch";
 import { useToast } from "core/ui/components/toast";
 import { getTuyaEdenClient } from "extensions/scripts/tuya/client";
+import { currentHex, effectiveBrightness, isColourMode } from "../lampColor";
 import type { HistoryPoint, Device, DeviceCommand } from "../types";
 import { DeviceHistoryChart } from "./deviceHistoryChart";
 import { LampControls } from "./lampControls";
+import { Modal } from "./modal";
 import { SwitchControls } from "./switchControls";
 
 interface Props {
@@ -25,6 +27,9 @@ export function DeviceDrawerContent({ device, isBusy, onCommand, onChanged, onDe
 
     const [name, setName] = useState(device.name);
     const [isSaving, setIsSaving] = useState(false);
+    const [showSaveMode, setShowSaveMode] = useState(false);
+    const [saveModeName, setSaveModeName] = useState("");
+    const [isSavingMode, setIsSavingMode] = useState(false);
     const [history, setHistory] = useState<HistoryPoint[]>([]);
 
     useEffect(() => {
@@ -75,6 +80,29 @@ export function DeviceDrawerContent({ device, isBusy, onCommand, onChanged, onDe
         onDeleted();
     }, [confirm, device.id, device.name, showToast, onDeleted]);
 
+    const saveAsMode = useCallback(async () => {
+        if (!saveModeName) return;
+        setIsSavingMode(true);
+        const { state } = device;
+        const { error } = await getTuyaEdenClient().tuya.presets.post({
+            name: saveModeName,
+            power: state.power ?? true,
+            brightness: state.brightness,
+            colorTemp: state.colorTemp,
+            colorHex: state.colorHex,
+            workMode: state.workMode === "colour" ? "colour" : "white",
+        });
+        setIsSavingMode(false);
+        if (error) {
+            showToast("Falha ao salvar o modo", "error");
+            return;
+        }
+        showToast(`Modo "${saveModeName}" salvo`, "success");
+        setShowSaveMode(false);
+        setSaveModeName("");
+        onChanged();
+    }, [device, saveModeName, showToast, onChanged]);
+
     return (
         <div className="flex flex-col gap-4">
             <section className="flex flex-col gap-3">
@@ -84,6 +112,57 @@ export function DeviceDrawerContent({ device, isBusy, onCommand, onChanged, onDe
                     <LampControls device={device} isBusy={isBusy} onCommand={onCommand} />
                 )}
             </section>
+
+            {device.kind === "lamp" && device.state.online && (
+                <section className="flex flex-col gap-2">
+                    <h3 className="text-sm font-semibold text-mist-300">Modo</h3>
+                    <div className="flex items-center gap-2 text-sm text-mist-400">
+                        <span
+                            className="size-4 rounded-full border border-gray-600 shrink-0"
+                            style={{ backgroundColor: currentHex(device.state) }}
+                        />
+                        <span>
+                            {isColourMode(device.state)
+                                ? currentHex(device.state)
+                                : "Branco"}
+                            {(() => {
+                                const b = effectiveBrightness(device.state);
+                                if (b === null) return "";
+                                return ` · ${b}%`;
+                            })()}
+                        </span>
+                    </div>
+                    <Button
+                        variant="secondary"
+                        onClick={() => {
+                            setSaveModeName(`${device.name} - ${new Date().toLocaleString("pt-BR")}`);
+                            setShowSaveMode(true);
+                        }}
+                    >
+                        <BookmarkIcon className="size-4" /> Salvar como modo
+                    </Button>
+                </section>
+            )}
+
+            <Modal
+                isOpen={showSaveMode}
+                onClose={() => setShowSaveMode(false)}
+                title={`Salvar estado de "${device.name}" como modo`}
+            >
+                <Input
+                    label="Nome do modo"
+                    value={saveModeName}
+                    onChange={(e) => setSaveModeName(e.target.value)}
+                />
+                <div className="flex justify-end gap-2">
+                    <Button variant="secondary" onClick={() => setShowSaveMode(false)}>
+                        Cancelar
+                    </Button>
+                    <Button onClick={saveAsMode} isLoading={isSavingMode} disabled={!saveModeName}>
+                        Salvar
+                    </Button>
+                </div>
+            </Modal>
 
             <section className="flex flex-col gap-2">
                 <h3 className="text-sm font-semibold text-mist-300">Configuração</h3>
