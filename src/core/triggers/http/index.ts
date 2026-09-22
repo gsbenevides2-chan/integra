@@ -14,6 +14,7 @@ import {
     serializeError,
 } from "core/instrumentation";
 import { uiFactory } from "core/ui";
+import { registerClient, unregisterClient } from "core/websocket";
 
 declare global {
     var elysiaClient: Elysia | undefined;
@@ -157,7 +158,16 @@ function createGlobalElysia() {
                     },
                 );
             },
-        ) as unknown as Elysia;
+        )
+        .ws("/ws/events", {
+            open(ws) {
+                registerClient(ws.raw);
+                ws.send(JSON.stringify({ type: "connected", timestamp: new Date().toISOString() }));
+            },
+            close(ws) {
+                unregisterClient(ws.raw);
+            },
+        }) as unknown as Elysia;
 }
 
 function saveRoutes(elysia: AnyElysia, triggerId: string, dontTrace: boolean) {

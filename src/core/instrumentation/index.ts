@@ -6,6 +6,7 @@ import type { CreateEventData, EndTracerParams, StartTracerParams } from "./type
 import { type ClientOptions } from "openai";
 import type { Treaty } from "@elysia/eden";
 import { fetch } from "bun";
+import { broadcastEvent, type ExecutionEvent } from "core/websocket";
 
 export const DONT_TRACE_ID = "dont-trace";
 
@@ -29,6 +30,14 @@ export async function startTracer(params: StartTracerParams) {
         ...params,
         startTime: new Date(),
     });
+    broadcastEvent({
+        type: "run:start",
+        traceId: params.traceId,
+        triggerId: params.triggerId,
+        workflowType: params.workflowType,
+        payload: { inputData: params.inputData } as Record<string, unknown>,
+        timestamp: new Date().toISOString(),
+    });
 }
 
 export async function endTracer(params: EndTracerParams, createTracer?: StartTracerParams) {
@@ -49,6 +58,17 @@ export async function endTracer(params: EndTracerParams, createTracer?: StartTra
             startTime: new Date(),
         });
     }
+    broadcastEvent({
+        type: "run:complete",
+        traceId: params.traceId,
+        triggerId: createTracer?.triggerId ?? "unknown",
+        workflowType: createTracer?.workflowType ?? "unknown",
+        payload: {
+            status: params.status,
+            outputData: params.outputData,
+        } as Record<string, unknown>,
+        timestamp: new Date().toISOString(),
+    });
 }
 
 export async function addTracerEvent(params: CreateEventData) {
@@ -65,6 +85,18 @@ export async function addTracerEvent(params: CreateEventData) {
         eventData: params.eventData,
         eventType: params.eventType,
         dateTime: new Date(),
+    });
+    broadcastEvent({
+        type: "run:event",
+        traceId: params.traceId,
+        triggerId: "unknown",
+        workflowType: "unknown",
+        payload: {
+            eventName: params.eventName,
+            eventData: params.eventData,
+            eventType: params.eventType,
+        } as Record<string, unknown>,
+        timestamp: new Date().toISOString(),
     });
 }
 
