@@ -205,7 +205,7 @@ function Dashboard() {
 
             <div>
                 <h2 className="text-lg mb-2">Runs</h2>
-                <RunsTable key={refreshKey} filters={filters} onSelectRun={setSelectedTraceId} />
+                <RunsTable key={refreshKey} filters={filters} onSelectRun={setSelectedTraceId} liveRuns={runs} />
             </div>
         </div>
     );
