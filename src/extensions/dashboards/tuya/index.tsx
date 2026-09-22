@@ -539,6 +539,7 @@ function Dashboard() {
             >
                 {openPreset && (
                     <PresetDrawerContent
+                        key={openPreset.id}
                         preset={openPreset}
                         onChanged={() => fetchAll(false)}
                         onDeleted={() => {

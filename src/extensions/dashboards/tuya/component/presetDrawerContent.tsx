@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { TrashIcon } from "@heroicons/react/24/outline";
 import { Button } from "core/ui/components/button";
 import { useConfirm } from "core/ui/components/confirm/context";
@@ -23,8 +23,6 @@ export function PresetDrawerContent({ preset, onChanged, onDeleted }: Props) {
     const confirm = useConfirm();
     const [draft, setDraft] = useState<PresetDraft>(() => presetDraftFromPreset(preset));
     const [isSaving, setIsSaving] = useState(false);
-
-    useEffect(() => setDraft(presetDraftFromPreset(preset)), [preset]);
 
     const save = useCallback(async () => {
         setIsSaving(true);
