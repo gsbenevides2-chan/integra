@@ -5,7 +5,7 @@ import {
     formatDuration,
     isContinuousWorkflow,
 } from "extensions/scripts/execution-logs/utils";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FilterValues } from "../filterBar";
 
 const PAGE_SIZE = 50;
@@ -102,9 +102,23 @@ export function RunsTable({ filters, onSelectRun, liveRuns }: Props) {
         }
     }
 
-    const displayRows = liveRuns && liveRuns.length > 0
-        ? liveRuns.filter((lr) => !rows.some((r) => r.traceId === lr.traceId)).concat(rows)
-        : rows;
+    const displayRows = useMemo(() => {
+        if (!liveRuns || liveRuns.length === 0) return rows;
+        // Merge WebSocket liveRuns with paginated rows, dedupe by traceId,
+        // then sort by startTime DESC to maintain correct order
+        const merged = [...liveRuns, ...rows];
+        const seen = new Set<string>();
+        const deduped: RunDocument[] = [];
+        for (const r of merged) {
+            if (!seen.has(r.traceId)) {
+                seen.add(r.traceId);
+                deduped.push(r);
+            }
+        }
+        return deduped.sort(
+            (a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime(),
+        );
+    }, [liveRuns, rows]);
 
     if (!isLoading && displayRows.length === 0) {
         return <div className="text-sm text-mist-400 py-6 text-center">No executions found.</div>;

@@ -17,9 +17,8 @@ function Dashboard() {
         startTimeGte: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
     });
     const [runs, setRuns] = useState<RunDocument[]>([]);
-    const [isLoading, setIsLoading] = useState(true);
     const [selectedTraceId, setSelectedTraceId] = useState<string>();
-    const [refreshKey, setRefreshKey] = useState(0);
+    const [tableRefreshKey, setTableRefreshKey] = useState(0);
     const [isClearing, setIsClearing] = useState(false);
     const { showToast } = useToast();
     const confirm = useConfirm();
@@ -32,17 +31,18 @@ function Dashboard() {
                 ...(filters.triggerId ? { triggerId: filters.triggerId } : {}),
                 ...(filters.startTimeGte ? { startTimeGte: filters.startTimeGte } : {}),
             }),
-            [filters.workflowType, filters.status, filters.triggerId, filters.startTimeGte],
+            [filters.workflowType, filters.triggerId, filters.status, filters.startTimeGte],
         ),
     );
 
-    // Merge WebSocket events into the runs list
+    // Merge WebSocket events into the runs list (used for DotChart + initial table seed)
     useEffect(() => {
         if (newRuns.length === 0) return;
         setRuns((prev) => {
             const existingIds = new Set(prev.map((r) => r.traceId));
             const deduped = newRuns.filter((r) => !existingIds.has(r.traceId));
             if (deduped.length === 0) return prev;
+            // Prepend newest runs, maintaining DESC order
             return [...deduped, ...prev];
         });
     }, [newRuns]);
@@ -63,43 +63,8 @@ function Dashboard() {
         });
     }, [completedRuns]);
 
-    // Disable WebSocket polling fallback when user explicitly toggles it
-    const wsConnected = wsStatus === "connected";
-    const wsPollingActive = wsStatus === "fallback-polling";
-    const fetchRuns = useCallback(async () => {
-        if (wsConnected) return; // WebSocket delivers real-time updates, no polling needed
-        setIsLoading(true);
-        const client = getExecutionLogsEdenClient();
-        const { data, error } = await client["execution-logs"].runs.get({
-            query: {
-                ...(filters.workflowType ? { workflowType: filters.workflowType } : {}),
-                ...(filters.status ? { status: filters.status } : {}),
-                ...(filters.triggerId ? { triggerId: filters.triggerId } : {}),
-                ...(filters.startTimeGte ? { startTimeGte: filters.startTimeGte } : {}),
-                limit: "200",
-            },
-        });
-        if (error) {
-            showToast("Failed to fetch executions", "error");
-        } else {
-            setRuns((data?.runs as RunDocument[] | undefined) ?? []);
-        }
-        setIsLoading(false);
-    }, [filters, showToast, wsConnected]);
-
-    useEffect(() => {
-        // On initial load, fetch runs from the API (the WebSocket only delivers new events)
-        fetchRuns();
-        // When WebSocket is connected, no polling needed — live events update the list
-        // When WebSocket is not available, poll every 15s as fallback
-        if (!wsConnected && !wsPollingActive) {
-            const interval = setInterval(fetchRuns, 15000);
-            return () => clearInterval(interval);
-        }
-    }, [fetchRuns, refreshKey, wsConnected, wsPollingActive]);
-
     const handleRefresh = useCallback(() => {
-        setRefreshKey((key) => key + 1);
+        setTableRefreshKey((k) => k + 1);
     }, []);
 
     const handleClearLogs = useCallback(async () => {
@@ -120,7 +85,7 @@ function Dashboard() {
         }
         showToast("Logs cleared", "success");
         setSelectedTraceId(undefined);
-        setRefreshKey((key) => key + 1);
+        setTableRefreshKey((k) => k + 1);
     }, [confirm, showToast]);
 
     return (
@@ -174,7 +139,7 @@ function Dashboard() {
                                 ? "Polling"
                                 : "Offline"}
                     </span>
-                    <Button variant="secondary" isLoading={isLoading} onClick={handleRefresh}>
+                    <Button variant="secondary" onClick={handleRefresh}>
                         <ArrowPathIcon className="size-4" />
                         Refresh
                     </Button>
@@ -187,11 +152,7 @@ function Dashboard() {
 
             <FilterBar onFilterChange={setFilters} />
 
-            {isLoading && runs.length === 0 ? (
-                <div className="h-90 flex items-center justify-center text-mist-400 text-sm">
-                    Loading executions...
-                </div>
-            ) : runs.length === 0 ? (
+            {runs.length === 0 ? (
                 <div className="flex flex-col items-center gap-2 py-16 text-center">
                     <ClockIcon className="size-10 text-mist-500" />
                     <p className="text-mist-200">No executions found</p>
@@ -205,7 +166,7 @@ function Dashboard() {
 
             <div>
                 <h2 className="text-lg mb-2">Runs</h2>
-                <RunsTable key={refreshKey} filters={filters} onSelectRun={setSelectedTraceId} liveRuns={runs} />
+                <RunsTable key={tableRefreshKey} filters={filters} onSelectRun={setSelectedTraceId} liveRuns={runs} />
             </div>
         </div>
     );
