@@ -1,6 +1,6 @@
 import { db } from "core/db";
 import { runEvents, runs } from "extensions/db/schema";
-import { and, asc, desc, eq, gte, lte, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, gte, gt, lte, lt, or, type SQL } from "drizzle-orm";
 import type { RunDocument, RunFilters, TracerEvent } from "./types";
 import { isContinuousWorkflow } from "./utils";
 
@@ -16,6 +16,18 @@ function calculateDurationMs(startTime: Date, endTime?: Date | null): number | n
     return new Date(endTime).getTime() - new Date(startTime).getTime();
 }
 
+function parseCursor(cursor: string): { startTime: Date; id: string } | null {
+    try {
+        const parsed = JSON.parse(cursor);
+        if (parsed.s && parsed.i) {
+            return { startTime: new Date(parsed.s), id: parsed.i };
+        }
+    } catch {
+        // fallback for old-format cursor (ISO date string)
+    }
+    return null;
+}
+
 function buildFilter(filters: RunFilters): SQL | undefined {
     const conditions: SQL[] = [];
     if (filters.workflowType) conditions.push(eq(runs.workflowType, filters.workflowType));
@@ -24,12 +36,37 @@ function buildFilter(filters: RunFilters): SQL | undefined {
     if (filters.startTimeGte) conditions.push(gte(runs.startTime, new Date(filters.startTimeGte)));
     if (filters.startTimeLte) conditions.push(lte(runs.startTime, new Date(filters.startTimeLte)));
     if (filters.cursor) {
-        const cursorDate = new Date(filters.cursor);
-        conditions.push(
-            filters.sortOrder === "asc"
-                ? gte(runs.startTime, cursorDate)
-                : lte(runs.startTime, cursorDate),
-        );
+        const parsed = parseCursor(filters.cursor);
+        if (parsed) {
+            const { startTime: cursorDate, id: cursorId } = parsed;
+            if (filters.sortOrder === "asc") {
+                // ASC: (startTime > cursorDate) OR (startTime = cursorDate AND id > cursorId)
+                conditions.push(
+                    or(
+                        gt(runs.startTime, cursorDate),
+                        and(eq(runs.startTime, cursorDate), gt(runs.id, cursorId)),
+                    ),
+                );
+            } else {
+                // DESC: (startTime < cursorDate) OR (startTime = cursorDate AND id > cursorId)
+                conditions.push(
+                    or(
+                        lt(runs.startTime, cursorDate),
+                        and(eq(runs.startTime, cursorDate), gt(runs.id, cursorId)),
+                    ),
+                );
+            }
+        } else {
+            // Legacy cursor format — plain ISO date string for backward compat
+            const cursorDate = new Date(filters.cursor);
+            if (!isNaN(cursorDate.getTime())) {
+                conditions.push(
+                    filters.sortOrder === "asc"
+                        ? gte(runs.startTime, cursorDate)
+                        : lte(runs.startTime, cursorDate),
+                );
+            }
+        }
     }
     return conditions.length ? and(...conditions) : undefined;
 }
@@ -47,6 +84,7 @@ export async function fetchRuns(filters: RunFilters) {
 
     const rows = await db
         .select({
+            id: runs.id,
             traceId: runs.traceId,
             triggerId: runs.triggerId,
             startTime: runs.startTime,
@@ -62,6 +100,8 @@ export async function fetchRuns(filters: RunFilters) {
     const hasMore = rows.length > limit;
     if (hasMore) rows.pop();
 
+    const lastRow = rows[rows.length - 1];
+
     const runDocs = rows.map((doc) => ({
         ...doc,
         endTime: doc.endTime ?? undefined,
@@ -71,8 +111,11 @@ export async function fetchRuns(filters: RunFilters) {
     })) as RunDocument[];
 
     const nextCursor =
-        hasMore && runDocs.length > 0
-            ? new Date(runDocs[runDocs.length - 1]!.startTime).toISOString()
+        hasMore && lastRow
+            ? JSON.stringify({
+                  s: new Date(lastRow.startTime).toISOString(),
+                  i: lastRow.id,
+              })
             : null;
 
     return { runs: runDocs, nextCursor };
