@@ -15,6 +15,7 @@ type SortField = "startTime" | "endTime" | "durationMs";
 interface Props {
     filters: FilterValues;
     onSelectRun: (traceId: string) => void;
+    liveRuns?: RunDocument[];
 }
 
 const COLUMNS: {
@@ -30,7 +31,7 @@ const COLUMNS: {
     { field: "durationMs", label: "Duration", sortable: true },
 ];
 
-export function RunsTable({ filters, onSelectRun }: Props) {
+export function RunsTable({ filters, onSelectRun, liveRuns }: Props) {
     const [rows, setRows] = useState<RunDocument[]>([]);
     const [nextCursor, setNextCursor] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(true);
@@ -101,7 +102,11 @@ export function RunsTable({ filters, onSelectRun }: Props) {
         }
     }
 
-    if (!isLoading && rows.length === 0) {
+    const displayRows = liveRuns && liveRuns.length > 0
+        ? liveRuns.filter((lr) => !rows.some((r) => r.traceId === lr.traceId)).concat(rows)
+        : rows;
+
+    if (!isLoading && displayRows.length === 0) {
         return <div className="text-sm text-mist-400 py-6 text-center">No executions found.</div>;
     }
 
@@ -134,7 +139,7 @@ export function RunsTable({ filters, onSelectRun }: Props) {
                         </tr>
                     </thead>
                     <tbody>
-                        {rows.map((run) => (
+                        {displayRows.map((run) => (
                             <tr
                                 key={run.traceId}
                                 className="border-t border-gray-700 hover:bg-gray-700 cursor-pointer"

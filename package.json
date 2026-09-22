@@ -31,7 +31,8 @@
         "lint": "bun --bun eslint .",
         "lint:fix": "bun --bun eslint . --fix",
         "format": "bun --bun prettier --check .",
-        "format:fix": "bun --bun prettier --write ."
+        "format:fix": "bun --bun prettier --write .",
+        "test": "bun test"
     },
     "devDependencies": {
         "@types/bun": "latest",
