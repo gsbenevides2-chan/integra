@@ -31,6 +31,19 @@ async function peekBody(
 
 type PreconnectOptions = Parameters<typeof globalThis.fetch.preconnect>["1"];
 
+/** Returns true for 10.x.x.x, 172.16-31.x.x, 192.168.x.x and localhost. */
+function isPrivateHost(host: string): boolean {
+  if (host === "localhost" || host === "127.0.0.1" || host === "::1") return true;
+  const parts = host.split(".");
+  if (parts.length !== 4) return false;
+  const first = parseInt(parts[0], 10);
+  const second = parseInt(parts[1], 10);
+  if (first === 10) return true;
+  if (first === 172 && second >= 16 && second <= 31) return true;
+  if (first === 192 && second === 168) return true;
+  return false;
+}
+
 /**
  * Extended init type that allows callers to opt out of W3C trace context
  * injection per-request. Set `skipTraceInjection: true` when the target
@@ -52,7 +65,9 @@ export function instrumentFetch(): void {
     const request = new Request(input, init);
     const url = new URL(request.url);
 
-    if (url.toString().includes(oltpEndpoint)) {
+    // Bypass instrumentation entirely for OTLP exporter and private hosts
+    // (routers, IoT devices that don't handle reconstructed Requests).
+    if (url.toString().includes(oltpEndpoint) || isPrivateHost(url.hostname)) {
       return originalFetch(input, init);
     }
 
