@@ -5,6 +5,7 @@ import {
   scheduleCalendarMessages,
   sendScheduledMessages,
 } from "./modules/google/jobs/calendarReminders";
+import { cleanAccessCodeEmails } from "./modules/google/jobs/accessCodeCleaner";
 import { extractPayslips } from "./modules/google/jobs/payslipExtractor";
 import { watchSupportTickets } from "./modules/google/jobs/supportTicketWatcher";
 import {
@@ -74,6 +75,10 @@ export function registerCrons() {
   Bun.cron(
     "*/1 * * * *",
     tracedCronJob("google.gmail.support", watchSupportTickets),
+  );
+  Bun.cron(
+    "0 * * * *",
+    tracedCronJob("google.gmail.accesscode", cleanAccessCodeEmails),
   );
   Bun.cron(
     "0 12 * * *",
