@@ -1,4 +1,4 @@
-import { SpanKind, SpanStatusCode, trace } from "@opentelemetry/api";
+import { Span, SpanKind, SpanStatusCode, trace } from "@opentelemetry/api";
 
 import { aesDecrypt, aesEncrypt, md5Hex, randomKeyIvPart, rsaEncryptNoPadding } from "./protocolCrypto";
 
@@ -18,18 +18,28 @@ export interface TpLinkClientOptions {
   password: string;
 }
 
+/** Attributes that identify this client as the TP-Link router service. */
+const TPLINK_SERVICE_ATTRS = {
+  "peer.service": "tp-link",
+  "service_name": "tp-link-router",
+} as const;
+
 async function withSpan<T>(
   name: string,
   attributes: Record<string, string>,
   fn: () => Promise<T>,
+  onResult?: (result: T, span: Span) => void,
 ): Promise<T> {
   return tracer.startActiveSpan(
     name,
-    { kind: SpanKind.CLIENT, attributes },
+    { kind: SpanKind.CLIENT, attributes: { ...TPLINK_SERVICE_ATTRS, ...attributes } },
     async (span) => {
       try {
         const result = await fn();
         span.setStatus({ code: SpanStatusCode.OK });
+        if (onResult) {
+          onResult(result, span);
+        }
         return result;
       } catch (error) {
         span.recordException(error as Error);
@@ -132,7 +142,11 @@ export class TpLinkClient {
   ): Promise<string> {
     return withSpan(
       "tplink.postGdpr",
-      { "server.address": this.host, "tplink.operation": isLogin ? "login" : "call" },
+      {
+        "server.address": this.host,
+        "tplink.operation": isLogin ? "login" : "call",
+        "tplink.request.body": jsonBody,
+      },
       async () => {
         try {
           const data = aesEncrypt(jsonBody, aesKey, aesIv);
@@ -173,6 +187,10 @@ export class TpLinkClient {
           );
           throw new Error("Request Error", { cause: error });
         }
+      },
+      (result, span) => {
+        span.setAttribute("tplink.response.body", result);
+        span.setAttribute("tplink.response.body.size", result.length);
       },
     );
   }
@@ -273,17 +291,18 @@ export class TpLinkClient {
   }
 
   async call(operation: string, oid: string, data: Record<string, unknown> = {}): Promise<unknown> {
+    const payload = { data, operation, oid };
+    const jsonBody = JSON.stringify(payload) + "\r\n";
     return withSpan("tplink.call", {
       "server.address": this.host,
       "tplink.operation": operation,
       "tplink.oid": oid,
+      "tplink.request.body": jsonBody,
     }, async () => {
       if (!this.aesKey) {
         throw new Error("Not logged in yet - call login() first");
       }
 
-      const payload = { data, operation, oid };
-      const jsonBody = JSON.stringify(payload) + "\r\n";
       const decrypted = await this.postGdpr(jsonBody, false, this.aesKey, this.aesIv);
 
       try {
@@ -291,6 +310,11 @@ export class TpLinkClient {
       } catch {
         return decrypted;
       }
+    },
+    (result, span) => {
+      const resultStr = typeof result === "string" ? result : JSON.stringify(result);
+      span.setAttribute("tplink.response.body", resultStr);
+      span.setAttribute("tplink.response.body.size", resultStr.length);
     });
   }
 
