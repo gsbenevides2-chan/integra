@@ -18,6 +18,12 @@ export interface TpLinkClientOptions {
   password: string;
 }
 
+/** Attributes that identify this client as the TP-Link router service. */
+const TPLINK_SERVICE_ATTRS = {
+  "peer.service": "tp-link",
+  "service_name": "tp-link-router",
+} as const;
+
 async function withSpan<T>(
   name: string,
   attributes: Record<string, string>,
@@ -25,7 +31,7 @@ async function withSpan<T>(
 ): Promise<T> {
   return tracer.startActiveSpan(
     name,
-    { kind: SpanKind.CLIENT, attributes },
+    { kind: SpanKind.CLIENT, attributes: { ...TPLINK_SERVICE_ATTRS, ...attributes } },
     async (span) => {
       try {
         const result = await fn();
