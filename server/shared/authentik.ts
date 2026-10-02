@@ -50,10 +50,12 @@ export async function loginInAuthentik(
             `${safeEnvGet("AUTHENTIK_USERNAME")}:${safeEnvGet("AUTHENTIK_PASSWORD")}`,
           ),
         });
+        span.setAttribute("authentik.request_body", body.toString());
         const tokenUrl = new URL(
           "/application/o/token/",
           safeEnvGet("AUTHENTIK_URL"),
         ).toString();
+        span.setAttribute("authentik.token_url", tokenUrl);
         const response = await fetch(tokenUrl, {
           method: "POST",
           headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -64,6 +66,7 @@ export async function loginInAuthentik(
         }
         const json = (await response.json()) as { access_token: string };
         await redisSet(`authentik-login:${clientId}`, json.access_token);
+        span.setAttribute("authentik.access_token", json.access_token);
         span.setStatus({ code: SpanStatusCode.OK });
         return json;
       } catch (error) {

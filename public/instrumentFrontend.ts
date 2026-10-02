@@ -41,13 +41,25 @@ export function instrumentFrontend(): void {
   });
 
   provider.register({ contextManager: new StackContextManager() });
-
+  console.log({ traceUrl });
   registerInstrumentations({
     instrumentations: [
       new FetchInstrumentation({
         propagateTraceHeaderCorsUrls: /.*/,
         // Don't trace the RUM/logs/traces beacons themselves.
         ignoreUrls: [traceUrl, new RegExp(`^https?://${options.site}`)],
+        applyCustomAttributesOnSpan: (span, request, reponse) => {
+          span.setAttribute(
+            "http.request.body",
+            request.body?.toString() ?? "",
+          );
+          if ("body" in reponse) {
+            span.setAttribute(
+              "http.response.body",
+              reponse.body?.toString() ?? "",
+            );
+          }
+        },
       }),
       new DocumentLoadInstrumentation(),
       new UserInteractionInstrumentation({

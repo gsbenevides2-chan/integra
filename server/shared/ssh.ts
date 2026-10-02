@@ -28,6 +28,9 @@ export async function runSshCommand(
           privateKey: safeEnvGet("SSH_DEFAULT_PRIVATE_KEY"),
         });
         const result = await ssh.execCommand(command);
+        span.setAttribute("ssh.command", command);
+        span.setAttribute("ssh.stdout", result.stdout);
+        span.setAttribute("ssh.stderr", result.stderr);
         if (result.code !== 0) {
           throw new Error(
             `SSH command exited with code ${result.code}: ${result.stderr}`,

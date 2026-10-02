@@ -12,6 +12,7 @@ export async function redisGet(key: string): Promise<string | null> {
     async (span) => {
       try {
         const value = await Bun.redis.get(key);
+        span.setAttribute("db.redis.value", value ?? "null");
         span.setStatus({ code: SpanStatusCode.OK });
         return value;
       } catch (error) {
@@ -33,7 +34,11 @@ export async function redisSet(key: string, value: string): Promise<void> {
     "redis.set",
     {
       kind: SpanKind.CLIENT,
-      attributes: { "db.system": "redis", "db.redis.key": key },
+      attributes: {
+        "db.system": "redis",
+        "db.redis.key": key,
+        "db.redis.value": value,
+      },
     },
     async (span) => {
       try {
