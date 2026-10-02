@@ -3,7 +3,7 @@
   "displayName": "Integra",
   "description": "Personal home-automation and monitoring server (Bun + Elysia + React) integrating Tuya smart-home devices, a TP-Link router, Google accounts, server/network health, train and platform status, and Discord/Authentik notifications — fully traced end-to-end with OpenTelemetry.",
   "type": "module",
-  "version": "2.0.5",
+  "version": "2.0.6",
   "private": true,
   "repository": {
     "type": "git",
@@ -34,6 +34,9 @@
     "@opentelemetry/instrumentation-document-load": "^0.67.0",
     "@opentelemetry/instrumentation-fetch": "^0.222.0",
     "@opentelemetry/instrumentation-user-interaction": "^0.66.0",
+    "@opentelemetry/api-logs": "^0.200.0",
+    "@opentelemetry/exporter-logs-otlp-proto": "^0.200.0",
+    "@opentelemetry/sdk-logs": "^0.200.0",
     "@opentelemetry/sdk-trace-web": "^2.11.0",
     "@tuya/tuya-connector-nodejs": "^2.1.2",
     "crypto-js": "^4.2.0",
