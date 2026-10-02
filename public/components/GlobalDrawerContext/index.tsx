@@ -44,7 +44,6 @@ const DASHBOARD_LIST: DashboardData[] = [
   statusPlatformDashboard,
   serverMetricsDashboard,
   tplinkDashboard,
-  adminDashboard,
 ];
 
 const DEFAULT_STATE: GlobalDrawerContextValue = {
