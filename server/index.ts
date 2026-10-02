@@ -4,6 +4,7 @@ import { Elysia, redirect } from "elysia";
 import indexHtml from "../public/index.html";
 import { registerCrons } from "./cron";
 import { instrumentFetch } from "./instrumentation/instrumentFetch";
+import { instrumentGaxios } from "./instrumentation/instrumentGaxios";
 import { elysiaOtel } from "./instrumentation/instrumentHttpServer";
 import { authentikRoutes } from "./modules/authentik";
 import { googleRoutes } from "./modules/google";
@@ -16,6 +17,7 @@ import { startTuyaPulsar } from "./modules/tuya/service/pulsar";
 import { openapi } from "./openapi";
 
 instrumentFetch();
+instrumentGaxios();
 
 const sw = await Bun.build({ entrypoints: ["public/sw.ts"] });
 const swJs = await sw.outputs[0]!.text();
