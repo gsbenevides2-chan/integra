@@ -121,6 +121,15 @@ export abstract class GmailService {
     return { subject, attachmentIds };
   }
 
+  static async trash(email: string, messageId: string): Promise<void> {
+    const { authClient } = await GoogleAccountService.getClient(email);
+    const gmail = google.gmail({ version: "v1", auth: authClient });
+    await gmail.users.messages.trash({
+      userId: "me",
+      id: messageId,
+    });
+  }
+
   static async getAttachment(
     email: string,
     messageId: string,
