@@ -7,6 +7,7 @@ import { instrumentFetch } from "./instrumentation/instrumentFetch";
 import { instrumentGaxios } from "./instrumentation/instrumentGaxios";
 import { elysiaOtel } from "./instrumentation/instrumentHttpServer";
 import { setupLoggerProvider } from "./instrumentation/instrumentLogger";
+import { adminRoutes } from "./modules/admin";
 import { authentikRoutes } from "./modules/authentik";
 import { googleRoutes } from "./modules/google";
 import { serverMetricsRoutes } from "./modules/server-metrics";
@@ -49,6 +50,7 @@ export const app = new Elysia()
   .use(statusPlatformRoutes)
   .use(serverMetricsRoutes)
   .use(tplinkRoutes)
+  .use(adminRoutes)
   .use(authentikRoutes);
 
 // The OTEL Plugin overrides native home response.
