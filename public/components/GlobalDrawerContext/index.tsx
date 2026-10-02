@@ -37,6 +37,7 @@ interface GlobalDrawerContextValue {
 }
 
 const DASHBOARD_LIST: DashboardData[] = [
+  adminDashboard,
   tuyaDashboard,
   googleAccountsDashboard,
   trainStatusDashboard,
