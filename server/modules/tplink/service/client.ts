@@ -96,8 +96,8 @@ export class TpLinkClient {
           TokenID: this.token,
         },
         body: "",
-        skipTraceInjection: true,
-      });
+        skipInstrumentation: true,
+      } as any);
       this.captureCookie(res);
 
       const text = await res.text();
@@ -155,8 +155,8 @@ export class TpLinkClient {
               TokenID: this.token,
             },
             body,
-            skipTraceInjection: true,
-          });
+            skipInstrumentation: true,
+          } as any);
 
           this.captureCookie(res);
 
@@ -190,7 +190,7 @@ export class TpLinkClient {
       this.aesKey = aesKey;
       this.aesIv = aesIv;
 
-      const indexRes = await fetch(this.baseUrl("/"), { headers: this.commonHeaders(), skipTraceInjection: true });
+      const indexRes = await fetch(this.baseUrl("/"), { headers: this.commonHeaders(), skipInstrumentation: true } as any);
       this.captureCookie(indexRes);
       const indexHtml = await indexRes.text();
 
@@ -210,101 +210,109 @@ export class TpLinkClient {
   }
 
   async login(maxRetries = 3, baseDelayMs = 500): Promise<void> {
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
-      try {
-        await this.fetchGDPRParm();
+    return withSpan("tplink.login", { "server.address": this.host }, async () => {
+      for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+          await this.fetchGDPRParm();
 
-        this.hash = md5Hex(this.username + this.password);
+          this.hash = md5Hex(this.username + this.password);
 
-        const aesKey = randomKeyIvPart();
-        const aesIv = randomKeyIvPart();
+          const aesKey = randomKeyIvPart();
+          const aesIv = randomKeyIvPart();
 
-        const userNameB64 = Buffer.from(this.username, "utf8").toString("base64");
-        const passwdB64 = Buffer.from(this.password, "utf8").toString("base64");
+          const userNameB64 = Buffer.from(this.username, "utf8").toString("base64");
+          const passwdB64 = Buffer.from(this.password, "utf8").toString("base64");
 
-        const payload = {
-          data: {
-            UserName: userNameB64,
-            Passwd: passwdB64,
-            Action: "1",
-            stack: "0,0,0,0,0,0",
-            pstack: "0,0,0,0,0,0",
-          },
-          operation: "cgi",
-          oid: "/cgi/login",
-        };
+          const payload = {
+            data: {
+              UserName: userNameB64,
+              Passwd: passwdB64,
+              Action: "1",
+              stack: "0,0,0,0,0,0",
+              pstack: "0,0,0,0,0,0",
+            },
+            operation: "cgi",
+            oid: "/cgi/login",
+          };
 
-        const jsonBody = JSON.stringify(payload) + "\r\n";
+          const jsonBody = JSON.stringify(payload) + "\r\n";
 
-        const decrypted = await this.postGdpr(jsonBody, true, aesKey, aesIv);
+          const decrypted = await this.postGdpr(jsonBody, true, aesKey, aesIv);
 
-        const retMatch = /\$\.ret\s*=\s*(-?\d+)/.exec(decrypted);
-        if (retMatch) {
-          const code = parseInt(retMatch[1] ?? "0", 10);
-          if (code !== 0) {
-            throw new Error(`Login failed, error code ${code}`);
+          const retMatch = /\$\.ret\s*=\s*(-?\d+)/.exec(decrypted);
+          if (retMatch) {
+            const code = parseInt(retMatch[1] ?? "0", 10);
+            if (code !== 0) {
+              throw new Error(`Login failed, error code ${code}`);
+            }
+          } else {
+            let parsed: unknown;
+            try {
+              parsed = JSON.parse(decrypted);
+            } catch {
+              throw new Error(`Unrecognized login response: ${decrypted}`);
+            }
+            if (!(parsed as { success?: boolean })?.success) {
+              throw new Error(`Login failed: ${JSON.stringify(parsed)}`);
+            }
           }
-        } else {
-          let parsed: unknown;
-          try {
-            parsed = JSON.parse(decrypted);
-          } catch {
-            throw new Error(`Unrecognized login response: ${decrypted}`);
-          }
-          if (!(parsed as { success?: boolean })?.success) {
-            throw new Error(`Login failed: ${JSON.stringify(parsed)}`);
-          }
+
+          await this.doLogin(aesKey, aesIv);
+          return;
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          if (attempt === maxRetries) throw error;
+          const delayMs = baseDelayMs * Math.pow(2, attempt - 1);
+          console.warn(
+            `Login attempt ${attempt}/${maxRetries} failed: ${errorMessage}. Retrying in ${delayMs}ms...`,
+          );
+          await new Promise((resolve) => setTimeout(resolve, delayMs));
         }
-
-        await this.doLogin(aesKey, aesIv);
-        return;
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        if (attempt === maxRetries) throw error;
-        const delayMs = baseDelayMs * Math.pow(2, attempt - 1);
-        console.warn(
-          `Login attempt ${attempt}/${maxRetries} failed: ${errorMessage}. Retrying in ${delayMs}ms...`,
-        );
-        await new Promise((resolve) => setTimeout(resolve, delayMs));
       }
-    }
+    });
   }
 
   async call(operation: string, oid: string, data: Record<string, unknown> = {}): Promise<unknown> {
-    if (!this.aesKey) {
-      throw new Error("Not logged in yet - call login() first");
-    }
+    return withSpan("tplink.call", {
+      "server.address": this.host,
+      "tplink.operation": operation,
+      "tplink.oid": oid,
+    }, async () => {
+      if (!this.aesKey) {
+        throw new Error("Not logged in yet - call login() first");
+      }
 
-    const payload = { data, operation, oid };
-    const jsonBody = JSON.stringify(payload) + "\r\n";
-    const decrypted = await this.postGdpr(jsonBody, false, this.aesKey, this.aesIv);
+      const payload = { data, operation, oid };
+      const jsonBody = JSON.stringify(payload) + "\r\n";
+      const decrypted = await this.postGdpr(jsonBody, false, this.aesKey, this.aesIv);
 
-    try {
-      return JSON.parse(decrypted);
-    } catch {
-      return decrypted;
-    }
+      try {
+        return JSON.parse(decrypted);
+      } catch {
+        return decrypted;
+      }
+    });
   }
 
   add<T>(oid: string, data: Record<string, unknown> = {}) {
-    return this.call("ao", oid, data) as Promise<T>;
+    return withSpan("tplink.add", { "server.address": this.host, "tplink.oid": oid }, () => this.call("ao", oid, data)) as Promise<T>;
   }
   get<T>(oid: string, data: Record<string, unknown> = {}) {
-    return this.call("go", oid, data) as Promise<T>;
+    return withSpan("tplink.get", { "server.address": this.host, "tplink.oid": oid }, () => this.call("go", oid, data)) as Promise<T>;
   }
   getList<T>(oid: string, data: Record<string, unknown> = {}) {
-    return this.call("gl", oid, data) as Promise<T>;
+    return withSpan("tplink.getList", { "server.address": this.host, "tplink.oid": oid }, () => this.call("gl", oid, data)) as Promise<T>;
   }
   getSubList<T>(oid: string, data: Record<string, unknown> = {}) {
-    return this.call("gs", oid, data) as Promise<T>;
+    return withSpan("tplink.getSubList", { "server.address": this.host, "tplink.oid": oid }, () => this.call("gs", oid, data)) as Promise<T>;
   }
   set<T>(oid: string, data: Record<string, unknown> = {}) {
-    return this.call("so", oid, data) as Promise<T>;
+    return withSpan("tplink.set", { "server.address": this.host, "tplink.oid": oid }, () => this.call("so", oid, data)) as Promise<T>;
   }
   del<T>(oid: string, data: Record<string, unknown> = {}) {
-    return this.call("do", oid, data) as Promise<T>;
+    return withSpan("tplink.del", { "server.address": this.host, "tplink.oid": oid }, () => this.call("do", oid, data)) as Promise<T>;
   }
   op<T>(oid: string, data: Record<string, unknown> = {}) {
-    return this.call("op", oid, data) as Promise<T>;
+    return withSpan("tplink.op", { "server.address": this.host, "tplink.oid": oid }, () => this.call("op", oid, data)) as Promise<T>;
   }
 }

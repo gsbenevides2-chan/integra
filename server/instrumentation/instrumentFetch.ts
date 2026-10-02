@@ -32,12 +32,14 @@ async function peekBody(
 type PreconnectOptions = Parameters<typeof globalThis.fetch.preconnect>["1"];
 
 /**
- * Extended init type that allows callers to opt out of W3C trace context
- * injection per-request. Set `skipTraceInjection: true` when the target
- * does not understand or rejects trace headers (e.g. routers, IoT devices).
+ * Extended init type that allows callers to bypass the entire instrumented
+ * fetch per-request. Set `skipInstrumentation: true` to skip ALL fetch
+ * instrumentation (reconstruction, tracing, header injection) — useful for
+ * routers, IoT devices, and other targets that don't handle reconstructed
+ * Request objects (e.g. TP-Link routers).
  */
 interface InstrumentedInit extends RequestInit {
-  skipTraceInjection?: boolean;
+  skipInstrumentation?: boolean;
 }
 
 export function instrumentFetch(): void {
@@ -52,7 +54,10 @@ export function instrumentFetch(): void {
     const request = new Request(input, init);
     const url = new URL(request.url);
 
-    if (url.toString().includes(oltpEndpoint)) {
+    // Bypass instrumentation entirely when the caller sets skipInstrumentation
+    // (e.g. for routers, IoT devices that don't handle reconstructed Requests).
+    // Also bypass for the OTLP exporter itself to avoid infinite tracing loops.
+    if (init?.skipInstrumentation || url.toString().includes(oltpEndpoint)) {
       return originalFetch(input, init);
     }
 
@@ -85,7 +90,7 @@ export function instrumentFetch(): void {
           // Skip trace header injection when the caller explicitly opts out
           // (e.g. for routers, IoT devices, or any host that doesn't
           // understand W3C trace headers).
-          if (!init?.skipTraceInjection) {
+          if (!init?.skipInstrumentation) {
             propagation.inject(context.active(), headers, {
               set: (carrier, key, value) => carrier.set(key, value),
             });
