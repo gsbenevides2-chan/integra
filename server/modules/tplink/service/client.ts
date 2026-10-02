@@ -96,8 +96,8 @@ export class TpLinkClient {
           TokenID: this.token,
         },
         body: "",
-        skipTraceInjection: true,
-      });
+        skipInstrumentation: true,
+      } as any);
       this.captureCookie(res);
 
       const text = await res.text();
@@ -155,8 +155,8 @@ export class TpLinkClient {
               TokenID: this.token,
             },
             body,
-            skipTraceInjection: true,
-          });
+            skipInstrumentation: true,
+          } as any);
 
           this.captureCookie(res);
 
@@ -190,7 +190,7 @@ export class TpLinkClient {
       this.aesKey = aesKey;
       this.aesIv = aesIv;
 
-      const indexRes = await fetch(this.baseUrl("/"), { headers: this.commonHeaders(), skipTraceInjection: true });
+      const indexRes = await fetch(this.baseUrl("/"), { headers: this.commonHeaders(), skipInstrumentation: true } as any);
       this.captureCookie(indexRes);
       const indexHtml = await indexRes.text();
 
