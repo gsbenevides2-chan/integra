@@ -1,8 +1,11 @@
-import { logs, SeverityNumber } from "@opentelemetry/api-logs";
 import type { Logger } from "@opentelemetry/api-logs";
-import { Resource } from "@opentelemetry/resources";
-import { BatchLogRecordProcessor } from "@opentelemetry/sdk-logs";
+import { logs, SeverityNumber } from "@opentelemetry/api-logs";
 import { OTLPLogExporter } from "@opentelemetry/exporter-logs-otlp-proto";
+import { resourceFromAttributes } from "@opentelemetry/resources";
+import {
+  BatchLogRecordProcessor,
+  LoggerProvider,
+} from "@opentelemetry/sdk-logs";
 import { ATTR_SERVICE_NAME } from "@opentelemetry/semantic-conventions";
 
 // ─── Global LoggerProvider setup ─────────────────────────────────────────
@@ -20,16 +23,15 @@ export function setupLoggerProvider(): void {
   if (initialized) return;
   initialized = true;
 
-  const resource = new Resource({
-    [ATTR_SERVICE_NAME]: "integra",
+  const loggerProvider = new LoggerProvider({
+    resource: resourceFromAttributes({
+      [ATTR_SERVICE_NAME]: "integra",
+    }),
   });
 
-  const loggerProvider = new LoggerProvider({
-    resource,
-    processors: [
-      new BatchLogRecordProcessor(new OTLPLogExporter()),
-    ],
-  });
+  loggerProvider.addLogRecordProcessor(
+    new BatchLogRecordProcessor(new OTLPLogExporter()),
+  );
 
   logs.setGlobalLoggerProvider(loggerProvider);
 }
