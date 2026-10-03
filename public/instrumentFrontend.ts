@@ -4,7 +4,6 @@ import { SpanStatusCode } from "@opentelemetry/api";
 import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-proto";
 import { registerInstrumentations } from "@opentelemetry/instrumentation";
 import { DocumentLoadInstrumentation } from "@opentelemetry/instrumentation-document-load";
-import { FetchInstrumentation } from "@opentelemetry/instrumentation-fetch";
 import { UserInteractionInstrumentation } from "@opentelemetry/instrumentation-user-interaction";
 import { resourceFromAttributes } from "@opentelemetry/resources";
 import {
@@ -67,21 +66,6 @@ export function instrumentFrontend(): void {
   provider.register({ contextManager: new StackContextManager() });
   registerInstrumentations({
     instrumentations: [
-      new FetchInstrumentation({
-        // Same-origin only: don't leak traceparent to third parties.
-        propagateTraceHeaderCorsUrls: [],
-        // Don't trace the RUM/logs/traces beacons themselves.
-        ignoreUrls: [traceUrl, new RegExp(`^https?://${options.site}`)],
-        applyCustomAttributesOnSpan: (span, request) => {
-          // `request` may be a Request or a RequestInit; only string bodies
-          // are readable synchronously.
-          const body = (request as RequestInit).body;
-          if (typeof body === "string") {
-            span.setAttribute("http.request.body", body);
-            span.setAttribute("http.request.body.size", body.length);
-          }
-        },
-      }),
       new DocumentLoadInstrumentation(),
       new UserInteractionInstrumentation({
         shouldPreventSpanCreation: (_eventType, element, span) => {
@@ -108,9 +92,27 @@ export function instrumentFrontend(): void {
     // Kept in memory only (no cookie/localStorage), so a page reload always
     // starts a brand new RUM session instead of resuming the previous one.
     sessionPersistence: "memory",
-    // No allowedTracingUrls: OTel FetchInstrumentation is the single owner of
-    // traceparent propagation (avoids two competing trace ids per request).
-    // RUM sessions join traces via the `session.id` span attribute.
+    // RUM is the single owner of traceparent propagation: it injects the header
+    // and stores the same trace_id on the RESOURCE event, which is what lets the
+    // OpenObserve RUM UI jump from a front-end request to its backend trace.
+    // (Don't add OTel FetchInstrumentation back: two injectors = two trace ids.)
+    // Not user traffic: our own span exporter (POST /v1/traces) and static
+    // assets (css/js/img/font/media) are dropped from RUM to keep sessions readable.
+    beforeSend: (event) =>
+      !(
+        event.type === "resource" &&
+        (["css", "js", "image", "font", "media"].includes(
+          event.resource.type,
+        ) ||
+          new URL(event.resource.url, window.location.origin).pathname ===
+            "/v1/traces")
+      ),
+    allowedTracingUrls: [
+      {
+        match: `${window.location.origin}/api`,
+        propagatorTypes: ["tracecontext"],
+      },
+    ],
     sessionSampleRate: 100,
     sessionReplaySampleRate: 100,
   });
