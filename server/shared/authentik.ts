@@ -1,10 +1,11 @@
 import safeEnvGet from "@server/safeEnvGet";
 
-import { SpanKind, SpanStatusCode, trace } from "@opentelemetry/api";
+import { SpanKind, trace } from "@opentelemetry/api";
 
+import { withSpan } from "../instrumentation/withSpan";
 import { redisGet, redisSet } from "./cache";
 
-const tracer = trace.getTracer("shared");
+const tracer = trace.getTracer("authentik");
 
 function decodeJwtExpiry(token: string): number | null {
   try {
@@ -34,51 +35,41 @@ async function getCachedToken(clientId: string): Promise<string | null> {
 export async function loginInAuthentik(
   clientId: string,
 ): Promise<{ access_token: string }> {
-  const cached = await getCachedToken(clientId);
-  if (cached) return { access_token: cached };
-
-  return tracer.startActiveSpan(
+  return withSpan(
+    tracer,
     "authentik.login",
     { kind: SpanKind.CLIENT, attributes: { "authentik.client_id": clientId } },
     async (span) => {
-      try {
-        const body = new URLSearchParams({
-          client_id: clientId,
-          grant_type: "client_credentials",
-          scope: "profile",
-          client_secret: btoa(
-            `${safeEnvGet("AUTHENTIK_USERNAME")}:${safeEnvGet("AUTHENTIK_PASSWORD")}`,
-          ),
-        });
-        span.setAttribute("authentik.request_body", body.toString());
-        const tokenUrl = new URL(
-          "/application/o/token/",
-          safeEnvGet("AUTHENTIK_URL"),
-        ).toString();
-        span.setAttribute("authentik.token_url", tokenUrl);
-        const response = await fetch(tokenUrl, {
-          method: "POST",
-          headers: { "Content-Type": "application/x-www-form-urlencoded" },
-          body,
-        });
-        if (!response.ok) {
-          throw new Error(`Failed to get token: ${response.statusText}`);
-        }
-        const json = (await response.json()) as { access_token: string };
-        await redisSet(`authentik-login:${clientId}`, json.access_token);
-        span.setAttribute("authentik.access_token", json.access_token);
-        span.setStatus({ code: SpanStatusCode.OK });
-        return json;
-      } catch (error) {
-        span.recordException(error as Error);
-        span.setStatus({
-          code: SpanStatusCode.ERROR,
-          message: (error as Error).message,
-        });
-        throw error;
-      } finally {
-        span.end();
+      const cached = await getCachedToken(clientId);
+      span.setAttribute("authentik.cache_hit", cached !== null);
+      if (cached) return { access_token: cached };
+
+      const body = new URLSearchParams({
+        client_id: clientId,
+        grant_type: "client_credentials",
+        scope: "profile",
+        client_secret: btoa(
+          `${safeEnvGet("AUTHENTIK_USERNAME")}:${safeEnvGet("AUTHENTIK_PASSWORD")}`,
+        ),
+      });
+      span.setAttribute("authentik.request_body", body.toString());
+      const tokenUrl = new URL(
+        "/application/o/token/",
+        safeEnvGet("AUTHENTIK_URL"),
+      ).toString();
+      span.setAttribute("authentik.token_url", tokenUrl);
+      const response = await fetch(tokenUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body,
+      });
+      if (!response.ok) {
+        throw new Error(`Failed to get token: ${response.statusText}`);
       }
+      const json = (await response.json()) as { access_token: string };
+      await redisSet(`authentik-login:${clientId}`, json.access_token);
+      span.setAttribute("authentik.access_token", json.access_token);
+      return json;
     },
   );
 }

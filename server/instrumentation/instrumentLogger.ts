@@ -1,12 +1,15 @@
+import { context } from "@opentelemetry/api";
 import type { Logger } from "@opentelemetry/api-logs";
 import { logs, SeverityNumber } from "@opentelemetry/api-logs";
 import { OTLPLogExporter } from "@opentelemetry/exporter-logs-otlp-proto";
-import { resourceFromAttributes } from "@opentelemetry/resources";
 import {
   BatchLogRecordProcessor,
   LoggerProvider,
 } from "@opentelemetry/sdk-logs";
-import { ATTR_SERVICE_NAME } from "@opentelemetry/semantic-conventions";
+
+import { appResource } from "./resource";
+
+type LogAttrs = Record<string, string | number | boolean>;
 
 // ─── Global LoggerProvider setup ─────────────────────────────────────────
 
@@ -24,9 +27,7 @@ export function setupLoggerProvider(): void {
   initialized = true;
 
   const loggerProvider = new LoggerProvider({
-    resource: resourceFromAttributes({
-      [ATTR_SERVICE_NAME]: "integra",
-    }),
+    resource: appResource,
   });
 
   loggerProvider.addLogRecordProcessor(
@@ -55,9 +56,9 @@ export function logError(
   logger: Logger,
   message: string,
   error?: unknown,
-  extraAttributes?: Record<string, string>,
+  extraAttributes?: LogAttrs,
 ): void {
-  const attrs: Record<string, string> = { ...extraAttributes };
+  const attrs: LogAttrs = { ...extraAttributes };
   if (error instanceof Error) {
     attrs["error.type"] = error.name;
     attrs["error.message"] = error.message;
@@ -70,7 +71,9 @@ export function logError(
     severityNumber: SeverityNumber.ERROR,
     body: message,
     attributes: attrs,
+    context: context.active(),
   });
+  console.error(message, attrs);
 }
 
 /**
@@ -80,13 +83,15 @@ export function logError(
 export function logInfo(
   logger: Logger,
   message: string,
-  extraAttributes?: Record<string, string>,
+  extraAttributes?: LogAttrs,
 ): void {
   logger.emit({
     severityNumber: SeverityNumber.INFO,
     body: message,
     attributes: extraAttributes,
+    context: context.active(),
   });
+  console.log(message, extraAttributes ?? "");
 }
 
 /**
@@ -95,13 +100,15 @@ export function logInfo(
 export function logWarn(
   logger: Logger,
   message: string,
-  extraAttributes?: Record<string, string>,
+  extraAttributes?: LogAttrs,
 ): void {
   logger.emit({
     severityNumber: SeverityNumber.WARN,
     body: message,
     attributes: extraAttributes,
+    context: context.active(),
   });
+  console.warn(message, extraAttributes ?? "");
 }
 
 export { SeverityNumber };

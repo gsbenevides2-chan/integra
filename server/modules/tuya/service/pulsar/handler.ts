@@ -1,5 +1,6 @@
-import { SpanKind, SpanStatusCode, trace } from "@opentelemetry/api";
+import { SpanKind, trace } from "@opentelemetry/api";
 
+import { withSpan } from "../../../../instrumentation/withSpan";
 import { tuyaEvents } from "../../events";
 import { getDeviceStatus, type TuyaStatusEntry } from "../cloud/client";
 import {
@@ -135,39 +136,31 @@ export async function handlePulsarMessage(
   const event = message.payload.data as unknown as TuyaDeviceEvent;
   if (!event.devId) return;
 
-  await tracer.startActiveSpan(
+  await withSpan(
+    tracer,
     "pulsar.message",
     {
       kind: SpanKind.CONSUMER,
       attributes: {
         "messaging.system": "tuya-pulsar",
+        "messaging.operation.type": "process",
+        "messaging.message.id": message.messageId,
         "tuya.dev_id": event.devId,
         ...(event.bizCode ? { "tuya.biz_code": event.bizCode } : {}),
       },
     },
-    async (span) => {
-      try {
-        if (event.bizCode === "online" || event.bizCode === "offline") {
-          await handleOnlineChange(event.devId, event.bizCode === "online");
-        } else if (event.status && event.status.length > 0) {
-          const handledAsDevice = await handleDeviceReport(
-            event.devId,
-            event.status,
-            true,
-          );
-          if (!handledAsDevice)
-            await handleSensorReport(event.devId, event.status);
-        }
-        span.setStatus({ code: SpanStatusCode.OK });
-      } catch (error) {
-        span.recordException(error as Error);
-        span.setStatus({
-          code: SpanStatusCode.ERROR,
-          message: (error as Error).message,
-        });
-      } finally {
-        span.end();
+    async () => {
+      if (event.bizCode === "online" || event.bizCode === "offline") {
+        await handleOnlineChange(event.devId, event.bizCode === "online");
+      } else if (event.status && event.status.length > 0) {
+        const handledAsDevice = await handleDeviceReport(
+          event.devId,
+          event.status,
+          true,
+        );
+        if (!handledAsDevice)
+          await handleSensorReport(event.devId, event.status);
       }
     },
-  );
+  ).catch(() => {}); // already recorded on the span; one bad message must not stop the stream
 }

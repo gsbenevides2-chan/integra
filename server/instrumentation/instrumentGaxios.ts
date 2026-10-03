@@ -1,6 +1,8 @@
 import { SpanKind, SpanStatusCode, trace } from "@opentelemetry/api";
 import { Gaxios, GaxiosOptions, GaxiosPromise } from "gaxios";
 
+import { recordSpanError } from "./withSpan";
+
 /** Whether we've already patched Gaxios.prototype.request to avoid double-wrap. */
 let patched = false;
 
@@ -55,17 +57,16 @@ export function instrumentGaxios(): void {
             "http.response.status_code",
             result.status,
           );
-          span.setStatus({
-            code: result.ok ? SpanStatusCode.OK : SpanStatusCode.ERROR,
-          });
+          if (!result.ok) {
+            span.setStatus({
+              code: SpanStatusCode.ERROR,
+              message: `HTTP ${result.status}`,
+            });
+          }
 
           return result;
         } catch (error: unknown) {
-          span.recordException(error as Error);
-          span.setStatus({
-            code: SpanStatusCode.ERROR,
-            message: (error as Error).message,
-          });
+          recordSpanError(span, error);
           throw error;
         } finally {
           span.end();

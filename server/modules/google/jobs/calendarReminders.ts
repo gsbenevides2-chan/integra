@@ -1,6 +1,8 @@
 import { redisGet, redisSet } from "@server/shared/cache";
 import { sendDiscordMessage } from "@server/shared/discord";
 
+import { trace } from "@opentelemetry/api";
+
 import { type CalendarEvent,CalendarService } from "../service/calendar";
 
 const OWNER_EMAIL = "guilherme.benevides@econverse.com.br";
@@ -133,6 +135,7 @@ export async function scheduleCalendarMessages(): Promise<void> {
     }),
   );
 
+  trace.getActiveSpan()?.setAttribute("items.processed", reminders.length);
   await setPending(reminders);
 }
 
@@ -145,6 +148,7 @@ export async function sendScheduledMessages(): Promise<void> {
     (reminder) => new Date(reminder.triggerAt).getTime() <= now,
   );
   if (due.length === 0) return;
+  trace.getActiveSpan()?.setAttribute("items.processed", due.length);
 
   await Promise.all(due.map((reminder) => sendDiscordMessage(reminder.message)));
 

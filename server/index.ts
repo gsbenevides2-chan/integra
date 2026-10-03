@@ -7,6 +7,7 @@ import { instrumentFetch } from "./instrumentation/instrumentFetch";
 import { instrumentGaxios } from "./instrumentation/instrumentGaxios";
 import { elysiaOtel } from "./instrumentation/instrumentHttpServer";
 import { setupLoggerProvider } from "./instrumentation/instrumentLogger";
+import { flushTelemetryOnExit } from "./instrumentation/shutdown";
 import { authentikRoutes } from "./modules/authentik";
 import { googleRoutes } from "./modules/google";
 import { serverMetricsRoutes } from "./modules/server-metrics";
@@ -20,6 +21,7 @@ import { openapi } from "./openapi";
 instrumentFetch();
 setupLoggerProvider();
 instrumentGaxios();
+flushTelemetryOnExit();
 
 const sw = await Bun.build({ entrypoints: ["public/sw.ts"] });
 const swJs = await sw.outputs[0]!.text();

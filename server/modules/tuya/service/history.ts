@@ -1,3 +1,6 @@
+import { getLogger, logInfo } from "../../../instrumentation/instrumentLogger";
+
+const log = getLogger("tuya");
 import { SensorService } from "./sensors";
 import { StateService } from "./state";
 
@@ -22,6 +25,9 @@ export abstract class HistoryService {
     await SensorService.pruneReadings(readingsCutoff);
     await StateService.pruneStateHistory(stateCutoff);
 
-    console.log("[tuya] history pruned", { readingsCutoff, stateCutoff });
+    logInfo(log, "tuya history pruned", {
+      readings_cutoff: readingsCutoff.toISOString(),
+      state_cutoff: stateCutoff.toISOString(),
+    });
   }
 }

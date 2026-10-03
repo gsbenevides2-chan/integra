@@ -1,11 +1,14 @@
-import { SpanKind, SpanStatusCode, trace } from "@opentelemetry/api";
+import { SpanKind, trace } from "@opentelemetry/api";
 
+import { getLogger, logInfo } from "./instrumentation/instrumentLogger";
+import { cronDuration, cronRuns } from "./instrumentation/metrics";
+import { withSpan } from "./instrumentation/withSpan";
 import { sendBirthdayMessage } from "./modules/birthday/jobs/sendMessage";
+import { cleanAccessCodeEmails } from "./modules/google/jobs/accessCodeCleaner";
 import {
   scheduleCalendarMessages,
   sendScheduledMessages,
 } from "./modules/google/jobs/calendarReminders";
-import { cleanAccessCodeEmails } from "./modules/google/jobs/accessCodeCleaner";
 import { extractPayslips } from "./modules/google/jobs/payslipExtractor";
 import { watchSupportTickets } from "./modules/google/jobs/supportTicketWatcher";
 import {
@@ -18,6 +21,7 @@ import { checkTrainLinesStatus } from "./modules/train-status/jobs/checkStatus";
 import { HistoryService } from "./modules/tuya/service/history";
 
 const tracer = trace.getTracer("cron");
+const log = getLogger("cron");
 
 /**
  * Guarantees every cron execution opens its own trace, regardless of whether the job
@@ -27,24 +31,27 @@ const tracer = trace.getTracer("cron");
  */
 function tracedCronJob(name: string, fn: () => Promise<void>) {
   return async () => {
-    await tracer.startActiveSpan(
+    const start = performance.now();
+    let outcome = "success";
+    await withSpan(
+      tracer,
       `cron.${name}`,
-      { kind: SpanKind.INTERNAL },
-      async (span) => {
+      { kind: SpanKind.INTERNAL, attributes: { "cron.job.name": name } },
+      async () => {
         try {
           await fn();
-          span.setStatus({ code: SpanStatusCode.OK });
         } catch (error) {
-          span.recordException(error as Error);
-          span.setStatus({
-            code: SpanStatusCode.ERROR,
-            message: (error as Error).message,
-          });
-        } finally {
-          span.end();
+          outcome = "error";
+          throw error;
         }
       },
-    );
+    )
+      .catch(() => {}) // recorded on the span; don't take down the process
+      .finally(() => {
+        const attrs = { "cron.job.name": name, outcome };
+        cronRuns.add(1, attrs);
+        cronDuration.record(performance.now() - start, attrs);
+      });
   };
 }
 
@@ -55,7 +62,7 @@ export function registerCrons() {
     process.env.NODE_ENV !== "production" &&
     process.env.ENABLE_CRONS !== "true"
   ) {
-    console.log("Crons disabled in dev (set ENABLE_CRONS=true to enable).");
+    logInfo(log, "Crons disabled in dev (set ENABLE_CRONS=true to enable).");
     return;
   }
 

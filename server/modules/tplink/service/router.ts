@@ -1,5 +1,6 @@
 import { db } from "@server/db";
 import { tplinkDevices, tplinkInterfaces, tplinkOnlineChecks, tplinkOnlineDeviceChecks } from "@server/db/schema";
+import { getLogger, logError, logWarn } from "@server/instrumentation/instrumentLogger";
 
 import { eq } from "drizzle-orm";
 import getVendor from "mac-oui-lookup";
@@ -26,6 +27,8 @@ import { TpLinkDeviceService } from "./devices";
 import { normalizeMac } from "./normalizeMac";
 import type { RouterStatus } from "./settings";
 import { TpLinkSettingsService } from "./settings";
+
+const log = getLogger("tplink");
 
 const SYNC_TRIGGER_ID = "sync-tp-link-data";
 
@@ -136,9 +139,7 @@ async function listKnownHosts(client: TpLinkClient): Promise<Map<string, KnownHo
       pstack: "0,0,0,0,0,0",
     })
     .catch((error: unknown) => {
-      console.error(
-        `Failed to read the router host table: ${error instanceof Error ? error.message : String(error)}`,
-      );
+      logError(log, "Failed to read the router host table", error);
       return { data: [] as DEV2_HOST_ENTRY[] };
     });
 
@@ -304,7 +305,7 @@ export async function restartNetwork(): Promise<void> {
       const client = await getRouterClient(agent.ip, agent.password);
       await rebootRouter(client);
     } catch (error) {
-      console.error(`Error rebooting agent ${agent.ip}:`, error);
+      logError(log, "Error rebooting agent", error, { "server.address": agent.ip });
     }
   }
   if (controller) {
@@ -312,7 +313,7 @@ export async function restartNetwork(): Promise<void> {
       const client = await getRouterClient(controller.ip, controller.password);
       await rebootRouter(client);
     } catch (error) {
-      console.error(`Error rebooting controller ${controller.ip}:`, error);
+      logError(log, "Error rebooting controller", error, { "server.address": controller.ip });
     }
   }
 }
@@ -394,7 +395,7 @@ async function syncDhcp(client: TpLinkClient): Promise<void> {
     const normalizedMac = normalizeMac(entry.mac);
     if (!dbMacs.has(normalizedMac)) {
       await removeDHCPEntry(entry.entryId, client).catch((e) => {
-        console.error(`Failed to remove DHCP entry for ${entry.mac}: ${e instanceof Error ? e.message : String(e)}`);
+        logError(log, "Failed to remove DHCP entry", e, { mac: entry.mac });
       });
     }
   }
@@ -403,7 +404,7 @@ async function syncDhcp(client: TpLinkClient): Promise<void> {
     const normalizedMac = normalizeMac(iface.mac);
     if (!routerMacToEntry.has(normalizedMac)) {
       await addDHCPEntry(iface.mac, iface.ip, client).catch((e) => {
-        console.error(`Failed to add DHCP entry for ${iface.mac}: ${e instanceof Error ? e.message : String(e)}`);
+        logError(log, "Failed to add DHCP entry", e, { mac: iface.mac });
       });
     }
   }
@@ -444,7 +445,7 @@ async function syncFirewall(client: TpLinkClient): Promise<void> {
     const normalizedMac = normalizeMac(rule.sourceMAC);
     if (!dbMacs.has(normalizedMac)) {
       await removeFirewallRule(rule.stack, client).catch((e) => {
-        console.error(`Failed to remove firewall rule for ${rule.sourceMAC}: ${e instanceof Error ? e.message : String(e)}`);
+        logError(log, "Failed to remove firewall rule", e, { mac: rule.sourceMAC });
       });
     }
   }
@@ -464,7 +465,7 @@ async function syncFirewall(client: TpLinkClient): Promise<void> {
         },
         client,
       ).catch((e) => {
-        console.error(`Failed to add firewall rule for ${iface.mac}: ${e instanceof Error ? e.message : String(e)}`);
+        logError(log, "Failed to add firewall rule", e, { mac: iface.mac });
       });
     }
   }
@@ -504,7 +505,7 @@ export async function syncSettings(): Promise<void> {
   if (shouldThrottle(SYNC_TRIGGER_ID)) {
     const state = getCircuitBreakerState(SYNC_TRIGGER_ID);
     const nextRetryAt = state.nextRetryAt?.toISOString() ?? "unknown";
-    console.warn(`Circuit breaker OPEN for ${SYNC_TRIGGER_ID}. Skipping sync. Next retry at: ${nextRetryAt}`);
+    logWarn(log, "Circuit breaker OPEN, skipping sync", { trigger: SYNC_TRIGGER_ID, next_retry_at: nextRetryAt });
     throw new Error(`Circuit breaker open - too many recent errors. Will retry after ${nextRetryAt}`);
   }
 
@@ -523,7 +524,7 @@ export async function syncSettings(): Promise<void> {
     recordSuccess(SYNC_TRIGGER_ID);
   } catch (error) {
     recordError(SYNC_TRIGGER_ID, error);
-    console.error("Error syncing router settings:", error);
+    logError(log, "Error syncing router settings", error);
     throw new Error(
       "Error syncing router settings: " + (error instanceof Error ? error.message : String(error)),
       { cause: error },

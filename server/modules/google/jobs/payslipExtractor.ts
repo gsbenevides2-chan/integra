@@ -1,6 +1,7 @@
 import { sendDiscordMessage } from "@server/shared/discord";
 import { runSshCommand } from "@server/shared/ssh";
 
+import { trace } from "@opentelemetry/api";
 import { z } from "zod";
 
 import { GmailService } from "../service/gmail";
@@ -79,6 +80,7 @@ export async function extractPayslips(): Promise<void> {
     OWNER_EMAIL,
     `from:(${senders}) has:attachment is:unread -label:${SAVED_LABEL}`,
   );
+  trace.getActiveSpan()?.setAttribute("items.processed", emails.length);
   if (emails.length === 0) return;
 
   const labelId = await GmailService.findLabelId(OWNER_EMAIL, SAVED_LABEL);

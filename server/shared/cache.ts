@@ -1,59 +1,47 @@
-import { SpanKind, SpanStatusCode, trace } from "@opentelemetry/api";
+import { SpanKind, trace } from "@opentelemetry/api";
 
-const tracer = trace.getTracer("shared");
+import { cacheRequests } from "../instrumentation/metrics";
+import { withSpan } from "../instrumentation/withSpan";
+
+const tracer = trace.getTracer("redis");
 
 export async function redisGet(key: string): Promise<string | null> {
-  return tracer.startActiveSpan(
+  return withSpan(
+    tracer,
     "redis.get",
     {
       kind: SpanKind.CLIENT,
-      attributes: { "db.system": "redis", "db.redis.key": key },
+      attributes: {
+        "db.system.name": "redis",
+        "db.operation.name": "GET",
+        "db.redis.key": key,
+      },
     },
     async (span) => {
-      try {
-        const value = await Bun.redis.get(key);
-        span.setAttribute("db.redis.value", value ?? "null");
-        span.setStatus({ code: SpanStatusCode.OK });
-        return value;
-      } catch (error) {
-        span.recordException(error as Error);
-        span.setStatus({
-          code: SpanStatusCode.ERROR,
-          message: (error as Error).message,
-        });
-        throw error;
-      } finally {
-        span.end();
-      }
+      const value = await Bun.redis.get(key);
+      span.setAttribute("db.redis.value", value ?? "null");
+      span.setAttribute("cache.hit", value !== null);
+      cacheRequests.add(1, { result: value !== null ? "hit" : "miss" });
+      return value;
     },
   );
 }
 
 export async function redisSet(key: string, value: string): Promise<void> {
-  await tracer.startActiveSpan(
+  await withSpan(
+    tracer,
     "redis.set",
     {
       kind: SpanKind.CLIENT,
       attributes: {
-        "db.system": "redis",
+        "db.system.name": "redis",
+        "db.operation.name": "SET",
         "db.redis.key": key,
         "db.redis.value": value,
       },
     },
-    async (span) => {
-      try {
-        await Bun.redis.set(key, value);
-        span.setStatus({ code: SpanStatusCode.OK });
-      } catch (error) {
-        span.recordException(error as Error);
-        span.setStatus({
-          code: SpanStatusCode.ERROR,
-          message: (error as Error).message,
-        });
-        throw error;
-      } finally {
-        span.end();
-      }
+    async () => {
+      await Bun.redis.set(key, value);
     },
   );
 }

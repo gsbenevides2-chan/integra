@@ -1,3 +1,6 @@
+import { getLogger, logWarn } from "../../../instrumentation/instrumentLogger";
+import { meter } from "../../../instrumentation/metrics";
+
 /**
  * Circuit breaker pattern to prevent overwhelming the TP-Link router during frequent errors.
  * Uses exponential backoff and automatic recovery after cooldown period.
@@ -20,6 +23,16 @@ const CONFIG = {
   ERROR_COOLDOWN_MS: 60 * 1000, // 1 minute cooldown after error
   ERROR_THRESHOLD: 3, // number of errors before opening circuit
 };
+
+const log = getLogger("tplink.circuit_breaker");
+
+meter
+  .createObservableGauge("tplink.circuit_breaker.open", {
+    description: "Number of TP-Link circuit breakers currently open.",
+  })
+  .addCallback((result) => {
+    result.observe([...errorStates.values()].filter((s) => s.isOpen).length);
+  });
 
 export interface CircuitBreakerState {
   isOpen: boolean;
@@ -62,14 +75,19 @@ export function recordError(triggerId: string, error: unknown): void {
 
   if (isOpen) {
     const cooldownSec = CONFIG.ERROR_COOLDOWN_MS / 1000;
-    console.warn(
-      `Circuit breaker OPEN for trigger "${triggerId}" after ${errorCount} errors. ` +
-        `Will retry in ${cooldownSec}s. Last error: ${errorMessage}`,
-    );
+    logWarn(log, "Circuit breaker OPEN", {
+      trigger: triggerId,
+      error_count: errorCount,
+      cooldown_s: cooldownSec,
+      "error.message": errorMessage,
+    });
   } else {
-    console.warn(
-      `Error recorded for trigger "${triggerId}" (${errorCount}/${CONFIG.ERROR_THRESHOLD}). Error: ${errorMessage}`,
-    );
+    logWarn(log, "Circuit breaker error recorded", {
+      trigger: triggerId,
+      error_count: errorCount,
+      threshold: CONFIG.ERROR_THRESHOLD,
+      "error.message": errorMessage,
+    });
   }
 }
 

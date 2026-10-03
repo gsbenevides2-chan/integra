@@ -1,7 +1,9 @@
 import safeEnvGet from "@server/safeEnvGet";
 
+import { trace } from "@opentelemetry/api";
 import { TuyaContext } from "@tuya/tuya-connector-nodejs";
 
+import { recordSpanError } from "../../../../instrumentation/withSpan";
 import { fetchRpc } from "./fetchRpc";
 
 /** Data centre hosts, keyed by the short name shown on the Tuya IoT platform. */
@@ -69,7 +71,17 @@ interface TuyaEnvelope<T> {
  */
 function unwrap<T>(envelope: TuyaEnvelope<T>): T {
   if (!envelope.success) {
-    throw new Error(`Tuya API call failed: [${envelope.code}] ${envelope.msg}`);
+    const error = new Error(
+      `Tuya API call failed: [${envelope.code}] ${envelope.msg}`,
+    );
+    // The HTTP status is 200 here, so the fetch span looks fine: flag the failure
+    // on whichever span is active (the caller's) with the Tuya error code.
+    const span = trace.getActiveSpan();
+    if (span) {
+      span.setAttribute("tuya.error_code", envelope.code ?? -1);
+      recordSpanError(span, error);
+    }
+    throw error;
   }
   return envelope.result;
 }
