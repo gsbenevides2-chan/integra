@@ -35,7 +35,10 @@ export const elysiaOtel = new Elysia({
     }),
   )
   // Capture Response Body and Response Headers and Send to OTEL
-  .onAfterHandle(({ responseValue, set }) => {
+  // `as: "global"` is required: hooks are local by default and would not run
+  // for routes of other modules; without any afterHandle hook Elysia does not
+  // expose `responseValue`, so the plugin records no response body either.
+  .onAfterHandle({ as: "global" }, ({ responseValue, set }) => {
     const attributes: Record<string, string> = {};
     for (const [key, value] of Object.entries(set.headers))
       attributes[`http.response.header.${key.toLowerCase()}`] = String(value);
@@ -51,7 +54,7 @@ export const elysiaOtel = new Elysia({
     }
     if (Object.keys(attributes).length) setAttributes(attributes);
   })
-  .onError(({ error }) => {
+  .onError({ as: "global" }, ({ error }) => {
     const span = getCurrentSpan();
     if (span) recordSpanError(span, error);
   })
