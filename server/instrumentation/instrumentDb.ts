@@ -1,14 +1,38 @@
-import { SpanKind, SpanStatusCode, trace } from "@opentelemetry/api";
+import { SpanKind, trace } from "@opentelemetry/api";
 import type { SQL } from "bun";
+
+import { dbDuration } from "./metrics";
+import { recordSpanError } from "./withSpan";
+
+/** "SELECT * FROM users" -> { operation: "SELECT", table: "users" } */
+function parseStatement(statement: string): {
+  operation: string;
+  table?: string;
+} {
+  const operation = statement.trimStart().split(/\s+/, 1)[0]?.toUpperCase() ?? "QUERY";
+  const table = statement.match(
+    /\b(?:from|into|update)\s+"?([\w.]+)"?/i,
+  )?.[1];
+  return { operation, table };
+}
 
 async function runTraced<T>(
   tracer: ReturnType<typeof trace.getTracer>,
   attributes: Record<string, string>,
   execute: () => Promise<T>,
 ): Promise<T> {
+  const { operation, table } = parseStatement(attributes["db.query.text"]!);
+  const start = performance.now();
   return tracer.startActiveSpan(
-    "db.query",
-    { kind: SpanKind.CLIENT, attributes },
+    table ? `${operation} ${table}` : operation,
+    {
+      kind: SpanKind.CLIENT,
+      attributes: {
+        ...attributes,
+        "db.operation.name": operation,
+        ...(table ? { "db.collection.name": table } : {}),
+      },
+    },
     async (span) => {
       try {
         const result = await execute();
@@ -17,16 +41,15 @@ async function runTraced<T>(
           "db.response.row_count",
           Array.isArray(result) ? result.length : 1,
         );
-        span.setStatus({ code: SpanStatusCode.OK });
         return result;
       } catch (error) {
-        span.recordException(error as Error);
-        span.setStatus({
-          code: SpanStatusCode.ERROR,
-          message: (error as Error).message,
-        });
+        recordSpanError(span, error);
         throw error;
       } finally {
+        dbDuration.record(performance.now() - start, {
+          "db.operation.name": operation,
+          ...(table ? { "db.collection.name": table } : {}),
+        });
         span.end();
       }
     },
@@ -52,10 +75,10 @@ function traceQuery<T>(
     runTraced(
       tracer,
       {
-        "db.system": "postgresql",
+        "db.system.name": "postgresql",
         "server.address": serverAddress,
-        "db.statement": statement,
-        "db.statement.params": JSON.stringify(params),
+        "db.query.text": statement,
+        "db.query.parameters": JSON.stringify(params),
       },
       () => new Promise<T>((resolve, reject) => originalThen(resolve, reject)),
     ).then(onFulfilled, onRejected)) as SQL.Query<T>["then"];

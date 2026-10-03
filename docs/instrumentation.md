@@ -1,6 +1,6 @@
 # Instrumentation
 
-Every HTTP request, outgoing `fetch`, database query and cron run is traced with **OpenTelemetry** and exported via OTLP to an external collector. There is no custom tracer and no app-owned "runs"/"run_events" table like the old repo had — tracing data lives entirely outside this app's own database.
+Every HTTP request, outgoing `fetch`, database query and cron run is traced (plus logs and metrics, below) with **OpenTelemetry** and exported via OTLP to an external collector. There is no custom tracer and no app-owned "runs"/"run_events" table like the old repo had — tracing data lives entirely outside this app's own database.
 
 ## Backend
 
@@ -10,8 +10,9 @@ The `elysiaOtel` plugin (built on `@elysia/opentelemetry`) wraps the whole app:
 
 - Opens a span per request, records request headers/body as span attributes (`headersToSpanAttributes`, `recordBody: true`).
 - `onAfterHandle` records the response's headers/body/size onto the same span.
-- `onError` marks the span as errored with the caught message.
-- Exports spans via `OTLPTraceExporter` + `BatchSpanProcessor` to `OTEL_EXPORTER_OTLP_ENDPOINT`.
+- `onError` records the exception (`recordException`, `error.type`) and marks the span as errored.
+- Exports spans via `OTLPTraceExporter` + `BatchSpanProcessor` to `OTEL_EXPORTER_OTLP_ENDPOINT`, and installs the global `MeterProvider` (OTLP metrics, `PeriodicExportingMetricReader`) so every meter in the app is exported.
+- Uses the shared `appResource` (`server/instrumentation/resource.ts`: `service.name`, `service.version`, `deployment.environment.name`, `service.instance.id`) — the same resource logs use.
 - Also exposes `POST /v1/traces`, which **proxies the frontend's own spans** to the real collector, attaching `OTEL_EXPORTER_OTLP_HEADERS` server-side — so the collector's auth header never has to reach the browser bundle.
 
 Because this plugin wraps every mounted route automatically, a module's `index.ts` needs no manual `traceId`/`triggerId` decorators (unlike the old repo's `TypedElysia()`).
@@ -22,28 +23,45 @@ Because this plugin wraps every mounted route automatically, a module's `index.t
 
 - Every call gets its own span (`"<METHOD> <hostname>"`, `SpanKind.CLIENT`), recording request/response headers, bodies, sizes and status code.
 - Injects W3C trace-context headers into the outgoing request (`propagation.inject`), so a call from this app to another service you also instrument continues the same trace.
-- Skips tracing calls to the OTLP endpoint itself, to avoid feedback loops.
+- Skips tracing calls to the OTLP endpoint itself, to avoid feedback loops. Callers can pass `skipInstrumentation: true` (type `InstrumentedInit`) to bypass tracing entirely (routers/IoT devices).
+- Records `http.client.request.duration` (ms) by host, method and status.
+- Non-2xx responses mark the span ERROR with `error.type`. Bodies are captured in full (no size cap).
+
+**Google APIs** go through `gaxios` → `node-fetch`, not `globalThis.fetch`, so `instrumentGaxios.ts` patches `Gaxios.prototype.request` with its own CLIENT span (`peer.service: google-api`). There is no double span.
 
 Because this patches the global `fetch`, **no module needs to reach for a special "traced fetch" helper** — a plain `fetch(url)` anywhere in the codebase is already traced.
 
 ### Database queries — `server/instrumentation/instrumentDb.ts`
 
-`instrumentDb(client, connectionUrl)` wraps Bun's `SQL` client (used by `server/db/index.ts`) in a `Proxy` that intercepts every query's `.then()`, opening a `db.query` span with the executed statement, its parameters, and the row count/body of the result. Drizzle's chained `.values()`/`.raw()` calls are unaffected since the same query instance is returned.
+`instrumentDb(client, connectionUrl)` wraps Bun's `SQL` client (used by `server/db/index.ts`) in a `Proxy` that intercepts every query's `.then()`, opening a `<OPERATION> <table>` span (e.g. `SELECT users`) with `db.query.text`, `db.query.parameters`, `db.operation.name`, `db.collection.name` and the row count/body of the result, and recording `db.client.operation.duration`. Drizzle's chained `.values()`/`.raw()` calls are unaffected since the same query instance is returned.
 
 ### Cron jobs — `server/cron.ts`
 
-Every scheduled job is wrapped by a local `tracedCronJob(name, fn)` helper: opens a span named `cron.<name>`, and — critically — **catches and records the job's error instead of letting it propagate**, so one failing job (a router that's down, an SSH box unreachable) never crashes the process or blocks the next job from registering.
+Every scheduled job is wrapped by a local `tracedCronJob(name, fn)` helper: opens a span named `cron.<name>`, and — critically — **catches and records the job's error instead of letting it propagate** (and emits `cron.job.runs` / `cron.job.duration` by `cron.job.name` and `outcome`), so one failing job (a router that's down, an SSH box unreachable) never crashes the process or blocks the next job from registering.
 
-### Manual spans
+### Manual spans — `server/instrumentation/withSpan.ts`
 
-Reach for `trace.getTracer("<name>").startActiveSpan(...)` directly only when neither of the above covers the call — e.g. `server/shared/ssh.ts` wraps `node-ssh`'s `execCommand` in its own span, since that's neither an HTTP call nor a DB query. Look at that file for the pattern (`SpanKind.CLIENT`, record the exception, set the status, always `span.end()` in `finally`).
+Use `withSpan(tracer, name, { kind, attributes }, async (span) => ...)` when neither of the above covers the call (ssh, redis, s3, authentik, tplink, pulsar). It records the exception + `error.type`, sets ERROR on failure, leaves status UNSET on success (semconv) and always ends the span. Swallowed-but-meaningful failures (e.g. a status-platform fetcher that is stored as DOWN) should still call `span.recordException`.
+
+### Logs — `server/instrumentation/instrumentLogger.ts`
+
+`getLogger(name)` + `logInfo/logWarn/logError(logger, message, attrs)` emit OTLP log records carrying the active `trace_id`/`span_id` (so logs join their traces) and also mirror to stdout. Prefer these over `console.*` in server code.
+
+### Metrics — `server/instrumentation/metrics.ts`
+
+`cron.job.runs`, `cron.job.duration`, `cache.requests{result}`, `http.client.request.duration`, `db.client.operation.duration`, `pulsar.events`, and the observable gauge `tplink.circuit_breaker.open`.
+
+### Shutdown — `server/instrumentation/shutdown.ts`
+
+`flushTelemetryOnExit()` flushes spans, logs and metrics on SIGTERM/SIGINT so the last batch isn't lost on restart.
 
 ## Frontend — `public/instrumentFrontend.ts`
 
 Wires up:
 
-- **OpenTelemetry web SDK** (`WebTracerProvider` + `FetchInstrumentation`, `DocumentLoadInstrumentation`, `UserInteractionInstrumentation`), exporting to `/v1/traces` on this app's own origin — which the backend then proxies to the real collector (see above).
+- **OpenTelemetry web SDK** (`WebTracerProvider` + `FetchInstrumentation`, `DocumentLoadInstrumentation`, `UserInteractionInstrumentation`), the single owner of `traceparent` propagation (same-origin only); every span carries the RUM `session.id`, and uncaught errors / unhandled rejections become spans. Exporting to `/v1/traces` on this app's own origin — which the backend then proxies to the real collector (see above).
 - **OpenObserve RUM + logs** (`@openobserve/browser-rum`/`browser-logs`) — session replay, resource/long-task tracking, forwarded console errors. Configured via `PUBLIC_RUM_TOKEN`, `PUBLIC_RUM_SITE`, `PUBLIC_OTEL_ORGANIZATION`.
+- **RUM ↔ trace correlation**: join on the `session.id` span attribute (front) and on `trace_id` (front → backend). RUM does not inject its own trace headers.
 - Session persistence is deliberately `"memory"` (not cookie/localStorage) — a page reload always starts a fresh RUM session.
 
 ## What replaced the old repo's tracer

@@ -1,23 +1,15 @@
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
 
 import { APP_VERSION } from "@public/version";
 
-import { openobserveRum } from "@openobserve/browser-rum";
-
+import { getRumSessionId } from "../../instrumentFrontend";
 import { useToast } from "../ToastContext";
 import { useGlobalDrawer } from "./index";
 
 export function Content() {
-  const [sessionId, setSessionId] = useState<string>("");
+  const [sessionId] = useState<string>(() => getRumSessionId() ?? "");
   const toast = useToast();
   const { dashboardList, page, setPage, setIsOpen } = useGlobalDrawer();
-
-  useEffect(() => {
-    window.addEventListener("loadTelemetry", () => {
-      const currentSessionId = openobserveRum.getInternalContext()?.session_id;
-      setSessionId(currentSessionId ?? "");
-    });
-  }, []);
 
   const copyRumSessionId = () => {
     navigator.clipboard.writeText(sessionId);

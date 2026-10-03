@@ -1,7 +1,9 @@
 import safeEnvGet from "@server/safeEnvGet";
 
-import { SpanKind, SpanStatusCode, trace } from "@opentelemetry/api";
+import { SpanKind, trace } from "@opentelemetry/api";
 import { NodeSSH } from "node-ssh";
+
+import { withSpan } from "../instrumentation/withSpan";
 
 const tracer = trace.getTracer("shared");
 
@@ -9,7 +11,8 @@ export async function runSshCommand(
   command: string,
   attributes: Record<string, string> = {},
 ): Promise<{ stdout: string; stderr: string }> {
-  return tracer.startActiveSpan(
+  return withSpan(
+    tracer,
     "ssh.exec",
     {
       kind: SpanKind.CLIENT,
@@ -28,23 +31,18 @@ export async function runSshCommand(
           privateKey: safeEnvGet("SSH_DEFAULT_PRIVATE_KEY"),
         });
         const result = await ssh.execCommand(command);
+        span.setAttribute("ssh.command", command);
+        span.setAttribute("ssh.stdout", result.stdout);
+        span.setAttribute("ssh.stderr", result.stderr);
+        span.setAttribute("process.exit.code", result.code ?? -1);
         if (result.code !== 0) {
           throw new Error(
             `SSH command exited with code ${result.code}: ${result.stderr}`,
           );
         }
-        span.setStatus({ code: SpanStatusCode.OK });
         return { stdout: result.stdout, stderr: result.stderr };
-      } catch (error) {
-        span.recordException(error as Error);
-        span.setStatus({
-          code: SpanStatusCode.ERROR,
-          message: (error as Error).message,
-        });
-        throw error;
       } finally {
         ssh.dispose();
-        span.end();
       }
     },
   );

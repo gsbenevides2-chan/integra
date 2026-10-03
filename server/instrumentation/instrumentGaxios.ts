@@ -1,5 +1,44 @@
-import { SpanKind, SpanStatusCode, trace } from "@opentelemetry/api";
-import { Gaxios, GaxiosOptions, GaxiosPromise } from "gaxios";
+import { type Span, SpanKind, SpanStatusCode, trace } from "@opentelemetry/api";
+import { createRequire } from "node:module";
+
+import { Gaxios, GaxiosOptions, GaxiosPromise, GaxiosResponse } from "gaxios";
+
+import { recordSpanError } from "./withSpan";
+
+function headerAttributes(prefix: string, headers: unknown) {
+  const attributes: Record<string, string> = {};
+  if (!headers) return attributes;
+  const entries =
+    typeof (headers as Headers).entries === "function"
+      ? (headers as Headers).entries()
+      : Object.entries(headers as Record<string, unknown>);
+  for (const [key, value] of entries)
+    attributes[`${prefix}.${key.toLowerCase()}`] = String(value);
+  return attributes;
+}
+
+/** Strings and JSON-able objects only; streams/buffers/forms are skipped. */
+function serializeBody(data: unknown): string | undefined {
+  if (data === undefined || data === null || data === "") return undefined;
+  if (typeof data === "string") return data;
+  if (typeof data !== "object" || ArrayBuffer.isView(data)) return undefined;
+  if (data instanceof ArrayBuffer || data instanceof Blob) return undefined;
+  if (typeof (data as { pipe?: unknown }).pipe === "function") return undefined;
+  if (data instanceof FormData || data instanceof URLSearchParams)
+    return undefined;
+  try {
+    return JSON.stringify(data);
+  } catch {
+    return undefined;
+  }
+}
+
+function recordBody(span: Span, prefix: string, data: unknown) {
+  const text = serializeBody(data);
+  if (text === undefined) return;
+  span.setAttribute(`${prefix}.body`, text);
+  span.setAttribute(`${prefix}.body.size`, Buffer.byteLength(text));
+}
 
 /** Whether we've already patched Gaxios.prototype.request to avoid double-wrap. */
 let patched = false;
@@ -19,58 +58,80 @@ export function instrumentGaxios(): void {
   patched = true;
 
   const tracer = trace.getTracer("googleapis");
-  const original = Gaxios.prototype.request.bind(Gaxios.prototype);
+  // gaxios is a dual package: `googleapis` loads the CJS build while this
+  // file's ESM import resolves to a different class, so patch both.
+  const cjsGaxios = createRequire(import.meta.url)("gaxios")
+    .Gaxios as typeof Gaxios;
+  for (const cls of new Set([Gaxios, cjsGaxios])) patch(cls);
 
-  // Gaxios.prototype.request<T>(opts?: GaxiosOptions): GaxiosPromise<T>
-  Gaxios.prototype.request = function request(
-    this: Gaxios,
-    opts: GaxiosOptions = {},
-  ): GaxiosPromise<unknown> {
-    const method = (opts.method ?? "GET").toUpperCase();
-    const rawUrl = opts.url?.toString() ?? "unknown";
-    let hostname = "unknown";
-    try {
-      hostname = new URL(rawUrl).hostname;
-    } catch {
-      // use the default fallback
-    }
+  function patch(cls: typeof Gaxios) {
+    const original = cls.prototype.request;
 
-    return tracer.startActiveSpan(
-      `${method} ${hostname}`,
-      {
-        kind: SpanKind.CLIENT,
-        attributes: {
-          "http.request.method": method,
-          "url.full": rawUrl,
-          "server.address": hostname,
-          "service_name": hostname,
-          "peer.service": "google-api",
+    // Gaxios.prototype.request<T>(opts?: GaxiosOptions): GaxiosPromise<T>
+    cls.prototype.request = function request(
+      this: Gaxios,
+      opts: GaxiosOptions = {},
+    ): GaxiosPromise<unknown> {
+      const method = (opts.method ?? "GET").toUpperCase();
+      const rawUrl = opts.url?.toString() ?? "unknown";
+      let hostname = "unknown";
+      try {
+        hostname = new URL(rawUrl).hostname;
+      } catch {
+        // use the default fallback
+      }
+
+      return tracer.startActiveSpan(
+        `${method} ${hostname}`,
+        {
+          kind: SpanKind.CLIENT,
+          attributes: {
+            "http.request.method": method,
+            "url.full": rawUrl,
+            "server.address": hostname,
+            service_name: hostname,
+            "peer.service": "google-api",
+          },
         },
-      },
-      async (span) => {
-        try {
-          const result = await original(opts);
+        async (span) => {
+          try {
+            span.setAttributes(
+              headerAttributes("http.request.header", opts.headers),
+            );
+            recordBody(span, "http.request", opts.data ?? opts.body);
 
-          span.setAttribute(
-            "http.response.status_code",
-            result.status,
-          );
-          span.setStatus({
-            code: result.ok ? SpanStatusCode.OK : SpanStatusCode.ERROR,
-          });
+            const result = await original.call(this, opts);
 
-          return result;
-        } catch (error: unknown) {
-          span.recordException(error as Error);
-          span.setStatus({
-            code: SpanStatusCode.ERROR,
-            message: (error as Error).message,
-          });
-          throw error;
-        } finally {
-          span.end();
-        }
-      },
-    ) as GaxiosPromise<unknown>;
-  };
+            span.setAttribute("http.response.status_code", result.status);
+            span.setAttributes(
+              headerAttributes("http.response.header", result.headers),
+            );
+            recordBody(span, "http.response", result.data);
+            if (!result.ok) {
+              span.setStatus({
+                code: SpanStatusCode.ERROR,
+                message: `HTTP ${result.status}`,
+              });
+            }
+
+            return result;
+          } catch (error: unknown) {
+            // GaxiosError carries the response for non-2xx statuses.
+            const response = (error as { response?: GaxiosResponse }).response;
+            if (response) {
+              span.setAttribute("http.response.status_code", response.status);
+              span.setAttributes(
+                headerAttributes("http.response.header", response.headers),
+              );
+              recordBody(span, "http.response", response.data);
+            }
+            recordSpanError(span, error);
+            throw error;
+          } finally {
+            span.end();
+          }
+        },
+      ) as GaxiosPromise<unknown>;
+    } as typeof cls.prototype.request;
+  }
 }

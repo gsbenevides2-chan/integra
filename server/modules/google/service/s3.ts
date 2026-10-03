@@ -1,34 +1,22 @@
-import { SpanKind, SpanStatusCode, trace } from "@opentelemetry/api";
+import { SpanKind, trace } from "@opentelemetry/api";
+
+import { withSpan } from "../../../instrumentation/withSpan";
 
 const tracer = trace.getTracer("google");
 
-async function traced<T>(
+function traced<T>(
   name: string,
   key: string,
   fn: () => Promise<T>,
 ): Promise<T> {
-  return tracer.startActiveSpan(
+  return withSpan(
+    tracer,
     name,
     {
       kind: SpanKind.CLIENT,
       attributes: { "s3.bucket": process.env.S3_BUCKET ?? "", "s3.key": key },
     },
-    async (span) => {
-      try {
-        const result = await fn();
-        span.setStatus({ code: SpanStatusCode.OK });
-        return result;
-      } catch (error) {
-        span.recordException(error as Error);
-        span.setStatus({
-          code: SpanStatusCode.ERROR,
-          message: (error as Error).message,
-        });
-        throw error;
-      } finally {
-        span.end();
-      }
-    },
+    fn,
   );
 }
 

@@ -6,6 +6,9 @@ import {
   trace,
 } from "@opentelemetry/api";
 
+import { httpClientDuration } from "./metrics";
+import { recordSpanError } from "./withSpan";
+
 function headerAttributes(
   prefix: string,
   headers: Headers,
@@ -38,28 +41,32 @@ type PreconnectOptions = Parameters<typeof globalThis.fetch.preconnect>["1"];
  * routers, IoT devices, and other targets that don't handle reconstructed
  * Request objects (e.g. TP-Link routers).
  */
-interface InstrumentedInit extends RequestInit {
+export interface InstrumentedInit extends RequestInit {
   skipInstrumentation?: boolean;
 }
 
 export function instrumentFetch(): void {
   const originalFetch = globalThis.fetch;
   const tracer = trace.getTracer("fetch");
+  // Read once: never trace the OTLP exporter itself (infinite loop).
+  const otlpHost = process.env.OTEL_EXPORTER_OTLP_ENDPOINT
+    ? new URL(process.env.OTEL_EXPORTER_OTLP_ENDPOINT).host
+    : undefined;
 
   const newFetch = async (
     input: string | Request | URL,
     init?: InstrumentedInit,
   ) => {
-    const oltpEndpoint = process.env.OTEL_EXPORTER_OTLP_ENDPOINT!;
-    const request = new Request(input, init);
-    const url = new URL(request.url);
-
-    // Bypass instrumentation entirely when the caller sets skipInstrumentation
-    // (e.g. for routers, IoT devices that don't handle reconstructed Requests).
-    // Also bypass for the OTLP exporter itself to avoid infinite tracing loops.
-    if (init?.skipInstrumentation || url.toString().includes(oltpEndpoint)) {
+    // Bypass before reconstructing the Request: callers opting out (routers,
+    // IoT devices) can't handle a rebuilt Request.
+    if (init?.skipInstrumentation) return originalFetch(input, init);
+    const rawUrl = input instanceof Request ? input.url : input.toString();
+    if (otlpHost && rawUrl.includes(otlpHost)) {
       return originalFetch(input, init);
     }
+
+    const request = new Request(input, init);
+    const url = new URL(request.url);
 
     return tracer.startActiveSpan(
       `${request.method} ${url.hostname}`,
@@ -69,11 +76,13 @@ export function instrumentFetch(): void {
           "http.request.method": request.method,
           "url.full": request.url,
           "server.address": url.hostname,
-          "server.port": url.port || (url.protocol === "https:" ? 443 : 80),
+          "server.port": Number(url.port || (url.protocol === "https:" ? 443 : 80)),
           service_name: url.hostname,
         },
       },
       async (span) => {
+        const start = performance.now();
+        let statusCode = 0;
         try {
           span.setAttributes(
             headerAttributes("http.request.header", request.headers),
@@ -82,47 +91,53 @@ export function instrumentFetch(): void {
           const requestBody = await peekBody(request);
           if (requestBody !== undefined) {
             span.setAttribute("http.request.body", requestBody);
-            span.setAttribute("http.request.body.size", requestBody.length);
+            span.setAttribute(
+              "http.request.body.size",
+              Buffer.byteLength(requestBody),
+            );
           }
 
           const headers = new Headers(request.headers);
-
-          // Skip trace header injection when the caller explicitly opts out
-          // (e.g. for routers, IoT devices, or any host that doesn't
-          // understand W3C trace headers).
-          if (!init?.skipInstrumentation) {
-            propagation.inject(context.active(), headers, {
-              set: (carrier, key, value) => carrier.set(key, value),
-            });
-          }
+          propagation.inject(context.active(), headers, {
+            set: (carrier, key, value) => carrier.set(key, value),
+          });
 
           const response = await originalFetch(
             new Request(request, { headers }),
           );
 
+          statusCode = response.status;
           span.setAttribute("http.response.status_code", response.status);
           span.setAttributes(
             headerAttributes("http.response.header", response.headers),
           );
-          span.setStatus({
-            code: response.ok ? SpanStatusCode.OK : SpanStatusCode.ERROR,
-          });
+          if (!response.ok) {
+            span.setAttribute("error.type", String(response.status));
+            span.setStatus({
+              code: SpanStatusCode.ERROR,
+              message: `HTTP ${response.status} ${response.statusText}`,
+            });
+          }
 
           const responseBody = await peekBody(response);
           if (responseBody !== undefined) {
             span.setAttribute("http.response.body", responseBody);
-            span.setAttribute("http.response.body.size", responseBody.length);
+            span.setAttribute(
+              "http.response.body.size",
+              Buffer.byteLength(responseBody),
+            );
           }
 
           return response;
         } catch (error) {
-          span.recordException(error as Error);
-          span.setStatus({
-            code: SpanStatusCode.ERROR,
-            message: (error as Error).message,
-          });
+          recordSpanError(span, error);
           throw error;
         } finally {
+          httpClientDuration.record(performance.now() - start, {
+            "http.request.method": request.method,
+            "server.address": url.hostname,
+            "http.response.status_code": statusCode,
+          });
           span.end();
         }
       },
@@ -130,19 +145,7 @@ export function instrumentFetch(): void {
   };
 
   newFetch.preconnect = (url: string | URL, options: PreconnectOptions) => {
-    const span = tracer.startSpan(`PRECONNECT ${new URL(url).hostname}`, {
-      kind: SpanKind.CLIENT,
-      attributes: { "url.full": url.toString() },
-    });
-    try {
-      originalFetch.preconnect(url, options);
-    } catch (error) {
-      span.recordException(error as Error);
-      span.setStatus({ code: SpanStatusCode.ERROR });
-      throw error;
-    } finally {
-      span.end();
-    }
+    originalFetch.preconnect(url, options);
   };
   globalThis.fetch = newFetch;
 }

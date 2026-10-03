@@ -1,7 +1,9 @@
 import safeEnvGet from "@server/safeEnvGet";
 
-import { SpanKind, SpanStatusCode, trace } from "@opentelemetry/api";
+import { type Span, SpanKind, SpanStatusCode, trace } from "@opentelemetry/api";
 
+import { getLogger, logError } from "../../../../instrumentation/instrumentLogger";
+import { pulsarEvents } from "../../../../instrumentation/metrics";
 import TuyaMessageSubscribeWebsocket from "./client";
 import { TUYA_PASULAR_ENV, TuyaRegionConfigEnum } from "./config";
 import { handlePulsarMessage, type PulsarMessage } from "./handler";
@@ -14,17 +16,35 @@ const REGIONS = {
 } as const;
 
 const tracer = trace.getTracer("pulsar");
+const log = getLogger("tuya.pulsar");
+
+// Long-lived span covering the current websocket connection; lifecycle events
+// (connected, reconnected, errors, log lines) are span events on it, so a
+// reconnect storm reads as one timeline instead of many zero-length traces.
+let connectionSpan: Span | undefined;
+
+function startConnectionSpan(reconnect: boolean): void {
+  connectionSpan?.end();
+  connectionSpan = tracer.startSpan("pulsar.connection", {
+    kind: SpanKind.CLIENT,
+    attributes: {
+      "messaging.system": "tuya-pulsar",
+      "pulsar.reconnect": reconnect,
+    },
+  });
+}
 
 function recordEvent(name: string, attributes?: Record<string, string>): void {
-  tracer.startSpan(name, { kind: SpanKind.INTERNAL, attributes }).end();
+  pulsarEvents.add(1, { event: name });
+  connectionSpan?.addEvent(name, attributes);
 }
 
 function recordError(name: string, error: unknown): void {
-  const span = tracer.startSpan(name, { kind: SpanKind.INTERNAL });
   const err = error instanceof Error ? error : new Error(String(error));
-  span.recordException(err);
-  span.setStatus({ code: SpanStatusCode.ERROR, message: err.message });
-  span.end();
+  pulsarEvents.add(1, { event: name });
+  logError(log, name, err);
+  connectionSpan?.recordException(err);
+  connectionSpan?.setStatus({ code: SpanStatusCode.ERROR, message: err.message });
 }
 
 /** Starts the Tuya Pulsar (real-time push) connection once for the whole app lifetime. */
@@ -48,12 +68,24 @@ export function startTuyaPulsar(): void {
     },
   });
 
-  client.open(() => recordEvent("pulsar.connected"));
-  client.reconnect(() => recordEvent("pulsar.reconnected"));
+  client.open(() => {
+    startConnectionSpan(false);
+    recordEvent("pulsar.connected");
+  });
+  client.reconnect(() => {
+    startConnectionSpan(true);
+    recordEvent("pulsar.reconnected");
+  });
+  client.close(() => {
+    recordEvent("pulsar.closed");
+    connectionSpan?.end();
+    connectionSpan = undefined;
+  });
 
   client.message((_ws, raw) => {
     const message = raw as PulsarMessage;
     client.ackMessage(message.messageId);
+    pulsarEvents.add(1, { event: "pulsar.message" });
     void handlePulsarMessage(message);
   });
 

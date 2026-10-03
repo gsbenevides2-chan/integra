@@ -19,7 +19,8 @@ There is no CLI argument parser (no `--only-run`, `--debug`, `--only`) — the o
 | `REDIS_URL` | Read implicitly by Bun's built-in `Bun.redis` client — not referenced explicitly in code |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | Trace collector base URL (backend spans, and the frontend's proxied spans) |
 | `OTEL_EXPORTER_OTLP_HEADERS` | Auth headers for the above, `key=value` pairs |
-| `OTEL_SERVICE_NAME`, `OTEL_SAMPLE_RATE` | Standard OpenTelemetry SDK env vars, read automatically by the SDK |
+| `OTEL_SERVICE_NAME` | Service name shared by traces, logs and metrics (`server/instrumentation/resource.ts`); defaults to `integra` |
+| `OTEL_TRACES_SAMPLER`, `OTEL_TRACES_SAMPLER_ARG` | Standard SDK sampling vars, read by the SDK. (`OTEL_SAMPLE_RATE` is **not** a real OTel var and is not read.) Unset = 100% sampling |
 | `PUBLIC_RUM_TOKEN`, `PUBLIC_RUM_SITE`, `PUBLIC_OTEL_ORGANIZATION` | Frontend OpenObserve RUM/logs config (`public/instrumentFrontend.ts`) |
 | `TZ` | Process timezone |
 

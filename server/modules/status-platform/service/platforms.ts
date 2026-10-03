@@ -1,11 +1,15 @@
 import { db } from "@server/db";
 import { platforms, platformStatusChecks } from "@server/db/schema";
 
+import { trace } from "@opentelemetry/api";
 import { and, desc, eq, lt } from "drizzle-orm";
 
+import { withSpan } from "../../../instrumentation/withSpan";
 import type { PlatformBody } from "../model";
 import { Fetchers } from "./fetchers";
 import { buildSegments } from "./history";
+
+const tracer = trace.getTracer("status-platform");
 
 const HISTORY_PAGE_SIZE = 100;
 
@@ -28,27 +32,48 @@ function latestChecksSubquery() {
 }
 
 export abstract class StatusPlatformService {
-  static async checkOne(platform: PlatformRow): Promise<void> {
-    const fetcher = Fetchers[platform.type];
-    const checkedAt = new Date();
-    try {
-      const result = await fetcher(platform.url);
-      await db.insert(platformStatusChecks).values({
-        platformId: platform.id,
-        status: result.status,
-        problemDescription:
-          result.status === "DOWN" ? result.problemDescription : null,
-        checkedAt,
-      });
-    } catch (error) {
-      await db.insert(platformStatusChecks).values({
-        platformId: platform.id,
-        status: "DOWN",
-        problemDescription:
-          error instanceof Error ? error.message : "Unknown error occurred",
-        checkedAt,
-      });
-    }
+  static checkOne(platform: PlatformRow): Promise<void> {
+    return withSpan(
+      tracer,
+      "statusPlatform.check",
+      {
+        attributes: {
+          "platform.id": platform.id,
+          "platform.name": platform.name,
+          "platform.type": platform.type,
+          "url.full": platform.url,
+        },
+      },
+      async (span) => {
+        const fetcher = Fetchers[platform.type];
+        const checkedAt = new Date();
+        try {
+          const result = await fetcher(platform.url);
+          span.setAttribute("platform.status", result.status);
+          await db.insert(platformStatusChecks).values({
+            platformId: platform.id,
+            status: result.status,
+            problemDescription:
+              result.status === "DOWN" ? result.problemDescription : null,
+            checkedAt,
+          });
+        } catch (error) {
+          // A failing fetcher is stored as DOWN, but keep the real cause visible
+          // (parser bug vs. real outage) without failing the whole cron run.
+          span.setAttribute("platform.status", "DOWN");
+          span.recordException(error as Error);
+          await db.insert(platformStatusChecks).values({
+            platformId: platform.id,
+            status: "DOWN",
+            problemDescription:
+              error instanceof Error
+                ? error.message
+                : "Unknown error occurred",
+            checkedAt,
+          });
+        }
+      },
+    );
   }
 
   static async checkAll(): Promise<void> {

@@ -1,8 +1,12 @@
-import { Span, SpanKind, SpanStatusCode, trace } from "@opentelemetry/api";
+import { Span, SpanKind, trace } from "@opentelemetry/api";
 
+import type { InstrumentedInit } from "../../../instrumentation/instrumentFetch";
+import { getLogger, logError, logWarn } from "../../../instrumentation/instrumentLogger";
+import { withSpan as baseWithSpan } from "../../../instrumentation/withSpan";
 import { aesDecrypt, aesEncrypt, md5Hex, randomKeyIvPart, rsaEncryptNoPadding } from "./protocolCrypto";
 
 const tracer = trace.getTracer("tplink");
+const log = getLogger("tplink");
 
 const COMMON_HEADERS = {
   Accept: "text/plain, */*; q=0.01",
@@ -24,33 +28,20 @@ const TPLINK_SERVICE_ATTRS = {
   "service_name": "tp-link-router",
 } as const;
 
-async function withSpan<T>(
+function withSpan<T>(
   name: string,
   attributes: Record<string, string>,
   fn: () => Promise<T>,
   onResult?: (result: T, span: Span) => void,
 ): Promise<T> {
-  return tracer.startActiveSpan(
+  return baseWithSpan(
+    tracer,
     name,
     { kind: SpanKind.CLIENT, attributes: { ...TPLINK_SERVICE_ATTRS, ...attributes } },
     async (span) => {
-      try {
-        const result = await fn();
-        span.setStatus({ code: SpanStatusCode.OK });
-        if (onResult) {
-          onResult(result, span);
-        }
-        return result;
-      } catch (error) {
-        span.recordException(error as Error);
-        span.setStatus({
-          code: SpanStatusCode.ERROR,
-          message: (error as Error).message,
-        });
-        throw error;
-      } finally {
-        span.end();
-      }
+      const result = await fn();
+      onResult?.(result, span);
+      return result;
     },
   );
 }
@@ -107,7 +98,7 @@ export class TpLinkClient {
         },
         body: "",
         skipInstrumentation: true,
-      } as any);
+      } as InstrumentedInit);
       this.captureCookie(res);
 
       const text = await res.text();
@@ -170,7 +161,7 @@ export class TpLinkClient {
             },
             body,
             skipInstrumentation: true,
-          } as any);
+          } as InstrumentedInit);
 
           this.captureCookie(res);
 
@@ -181,10 +172,9 @@ export class TpLinkClient {
 
           return aesDecrypt(text.trim(), aesKey, aesIv);
         } catch (error: unknown) {
-          console.error(
-            "Error while make request to TP-Link router:",
-            JSON.stringify({ jsonBody, error }),
-          );
+          logError(log, "Error while make request to TP-Link router", error, {
+            "tplink.request.body": jsonBody,
+          });
           throw new Error("Request Error", { cause: error });
         }
       },
@@ -208,7 +198,7 @@ export class TpLinkClient {
       this.aesKey = aesKey;
       this.aesIv = aesIv;
 
-      const indexRes = await fetch(this.baseUrl("/"), { headers: this.commonHeaders(), skipInstrumentation: true } as any);
+      const indexRes = await fetch(this.baseUrl("/"), { headers: this.commonHeaders(), skipInstrumentation: true } as InstrumentedInit);
       this.captureCookie(indexRes);
       const indexHtml = await indexRes.text();
 
@@ -281,9 +271,12 @@ export class TpLinkClient {
           const errorMessage = error instanceof Error ? error.message : String(error);
           if (attempt === maxRetries) throw error;
           const delayMs = baseDelayMs * Math.pow(2, attempt - 1);
-          console.warn(
-            `Login attempt ${attempt}/${maxRetries} failed: ${errorMessage}. Retrying in ${delayMs}ms...`,
-          );
+          logWarn(log, "TP-Link login attempt failed, retrying", {
+            attempt,
+            max_retries: maxRetries,
+            delay_ms: delayMs,
+            "error.message": errorMessage,
+          });
           await new Promise((resolve) => setTimeout(resolve, delayMs));
         }
       }
