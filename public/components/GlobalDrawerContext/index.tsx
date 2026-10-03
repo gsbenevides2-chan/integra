@@ -5,7 +5,7 @@ import React, {
   useState,
 } from "react";
 
-import { adminDashboard } from "@public/dashboards/admin";
+import { cronsDashboard } from "@public/dashboards/crons";
 import { googleAccountsDashboard } from "@public/dashboards/google-accounts";
 import { serverMetricsDashboard } from "@public/dashboards/server-metrics";
 import { statusPlatformDashboard } from "@public/dashboards/status-platform";
@@ -37,13 +37,13 @@ interface GlobalDrawerContextValue {
 }
 
 const DASHBOARD_LIST: DashboardData[] = [
-  adminDashboard,
   tuyaDashboard,
   googleAccountsDashboard,
   trainStatusDashboard,
   statusPlatformDashboard,
   serverMetricsDashboard,
   tplinkDashboard,
+  cronsDashboard,
 ];
 
 const DEFAULT_STATE: GlobalDrawerContextValue = {

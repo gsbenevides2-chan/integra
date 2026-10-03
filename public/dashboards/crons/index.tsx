@@ -14,11 +14,13 @@ import {
   ServerStackIcon,
 } from "@heroicons/react/24/outline";
 
-import { getAdminEdenClient } from "./client";
+import { getCronsEdenClient } from "./client";
 
 interface CronJob {
   name: string;
+  label: string;
   schedule: string;
+  scheduleLabel: string;
 }
 
 interface CronListResponse {
@@ -35,46 +37,7 @@ interface CronRunResponse {
 
 const REFRESH_INTERVAL_MS = 30000;
 
-function formatScheduleLabel(schedule: string): string {
-  const labels: [string, string][] = [
-    ["* * * * *", "A cada minuto"],
-    ["*/1 * * * *", "A cada minuto"],
-    ["*/2 * * * *", "A cada 2 min"],
-    ["*/5 * * * *", "A cada 5 min"],
-    ["*/10 * * * *", "A cada 10 min"],
-    ["*/30 * * * *", "A cada 30 min"],
-    ["0 * * * *", "A cada hora"],
-    ["0/2 * * * *", "A cada 2 min"],
-    ["0 4 * * *", "Diário 04:00"],
-    ["0 9 * * *", "Diário 09:00"],
-    ["0 12 * * *", "Diário 12:00"],
-  ];
-  for (const [pattern, label] of labels) {
-    if (schedule === pattern) return label;
-  }
-  return schedule;
-}
-
-const JOB_LABELS: Record<string, string> = {
-  "tuya.history.prune": "Podar histórico Tuya",
-  "google.calendar.schedule": "Agendar lembretes Google Calendar",
-  "google.calendar.send": "Enviar lembretes agendados",
-  "google.gmail.support": "Verificar tickets de suporte",
-  "google.gmail.accesscode": "Limpar e-mails de código de acesso",
-  "google.gmail.payslip": "Extrair holerites",
-  "trainStatus.check": "Verificar status de trens",
-  "statusPlatform.check": "Verificar status de plataformas",
-  "serverMetrics.collect": "Coletar métricas do servidor",
-  "serverMetrics.speedtest": "Teste de velocidade",
-  "tplink.sync": "Sincronizar TP-Link",
-  "birthday.send": "Enviar mensagem de aniversário",
-};
-
-function getJobLabel(name: string): string {
-  return JOB_LABELS[name] ?? name;
-}
-
-export function AdminDashboard() {
+export function CronsDashboard() {
   const { showToast } = useToast();
   const globalDrawer = useGlobalDrawer();
   const [jobs, setJobs] = useState<CronJob[]>([]);
@@ -87,8 +50,8 @@ export function AdminDashboard() {
   const fetchJobs = useCallback(
     async (useLoading: boolean) => {
       if (useLoading) setIsLoading(true);
-      const client = getAdminEdenClient();
-      const { data, error } = await client.api.admin.cron.list.get();
+      const client = getCronsEdenClient();
+      const { data, error } = await client.api.crons.list.get();
       if (error) {
         showToast("Falha ao buscar crons", "error");
       } else {
@@ -109,24 +72,28 @@ export function AdminDashboard() {
   }, [fetchJobs]);
 
   const runJob = useCallback(
-    async (jobName: string) => {
+    async ({ name: jobName, label }: CronJob) => {
       const updated = new Set(runningJobs);
       updated.add(jobName);
       setRunningJobs(updated);
 
-      const client = getAdminEdenClient();
-      const { data, error } = await client.api.admin.cron.run({ jobName }).post();
+      const client = getCronsEdenClient();
+      const { data, error } = await client.api.crons.run({ jobName }).post();
 
       const afterRun = new Set(runningJobs);
       afterRun.delete(jobName);
       setRunningJobs(afterRun);
 
       if (error) {
+        const errorMessage =
+          "message" in error && typeof error.message === "string"
+            ? error.message
+            : "Erro desconhecido";
         setLastResult((prev) => ({
           ...prev,
-          [jobName]: { error: error.message || "Erro desconhecido" },
+          [jobName]: { error: errorMessage },
         }));
-        showToast(`Falha ao executar ${getJobLabel(jobName)}`, "error");
+        showToast(`Falha ao executar ${label}`, "error");
         return;
       }
 
@@ -136,13 +103,13 @@ export function AdminDashboard() {
           ...prev,
           [jobName]: { error: resp?.error ?? "Erro desconhecido" },
         }));
-        showToast(resp?.error ?? `Falha ao executar ${getJobLabel(jobName)}`, "error");
+        showToast(resp?.error ?? `Falha ao executar ${label}`, "error");
       } else {
         setLastResult((prev) => ({
           ...prev,
           [jobName]: { elapsed: resp.elapsed! },
         }));
-        showToast(`${getJobLabel(jobName)} concluído em ${resp.elapsed}ms`, "success");
+        showToast(`${label} concluído em ${resp.elapsed}ms`, "success");
       }
     },
     [runningJobs, showToast],
@@ -157,7 +124,7 @@ export function AdminDashboard() {
         >
           <Bars3Icon className="size-5" />
         </IconButton>
-        <h1 className="text-xl">Admin — Crons</h1>
+        <h1 className="text-xl">Crons</h1>
       </div>
 
       {isLoading ? (
@@ -171,9 +138,11 @@ export function AdminDashboard() {
         <div className="overflow-x-auto rounded-md bg-gray-800">
           <table className="w-full text-sm">
             <thead>
-              <tr className="
-                border-b border-gray-700 text-left text-xs text-mist-400
-              ">
+              <tr
+                className="
+                  border-b border-gray-700 text-left text-xs text-mist-400
+                "
+              >
                 <th className="px-3 py-2 font-normal">Job</th>
                 <th className="px-3 py-2 font-normal">Schedule</th>
                 <th className="px-3 py-2 font-normal">Última execução</th>
@@ -184,34 +153,48 @@ export function AdminDashboard() {
               {jobs.map((job) => (
                 <tr
                   key={job.name}
-                  className="border-b border-gray-700 last:border-0 hover:bg-gray-700/40"
+                  className="
+                    border-b border-gray-700
+                    last:border-0
+                    hover:bg-gray-700/40
+                  "
                 >
                   <td className="px-3 py-2">
-                    <span className="text-mist-100">{getJobLabel(job.name)}</span>
+                    <span className="text-mist-100">{job.label}</span>
                     <br />
-                    <span className="text-[10px] text-mist-400">{job.name}</span>
+                    <span className="text-[10px] text-mist-400">
+                      {job.name}
+                    </span>
                   </td>
                   <td className="px-3 py-2">
-                    <span className="text-xs text-mist-300">{formatScheduleLabel(job.schedule)}</span>
+                    <span className="text-xs text-mist-300">
+                      {job.scheduleLabel}
+                    </span>
                     <br />
-                    <span className="text-[10px] text-mist-500">{job.schedule}</span>
+                    <span className="text-[10px] text-mist-500">
+                      {job.schedule}
+                    </span>
                   </td>
                   <td className="px-3 py-2">
                     {runningJobs.has(job.name) ? (
-                      <span className="text-yellow-300 text-xs">Executando...</span>
+                      <span className="text-xs text-yellow-300">
+                        Executando...
+                      </span>
                     ) : job.name in lastResult ? (
-                      "elapsed" in lastResult[job.name]
-                        ? (
-                          <span className="text-green-300 text-xs">
-                            OK — {(lastResult[job.name] as { elapsed: number }).elapsed}ms
-                          </span>
-                        ) : (
-                          <span className="text-red-300 text-xs">
-                            Erro
-                          </span>
-                        )
+                      "elapsed" in lastResult[job.name] ? (
+                        <span className="text-xs text-green-300">
+                          OK —{" "}
+                          {
+                            (lastResult[job.name] as { elapsed: number })
+                              .elapsed
+                          }
+                          ms
+                        </span>
+                      ) : (
+                        <span className="text-xs text-red-300">Erro</span>
+                      )
                     ) : (
-                      <span className="text-mist-400 text-xs">—</span>
+                      <span className="text-xs text-mist-400">—</span>
                     )}
                   </td>
                   <td className="px-3 py-2 text-right">
@@ -219,7 +202,7 @@ export function AdminDashboard() {
                       variant="secondary"
                       isLoading={runningJobs.has(job.name)}
                       disabled={runningJobs.has(job.name)}
-                      onClick={() => runJob(job.name)}
+                      onClick={() => runJob(job)}
                     >
                       <PlayIcon className="size-4" /> Executar
                     </Button>
@@ -234,9 +217,9 @@ export function AdminDashboard() {
   );
 }
 
-export const adminDashboard: DashboardData = {
-  id: "admin",
-  content: AdminDashboard,
+export const cronsDashboard: DashboardData = {
+  id: "crons",
+  content: CronsDashboard,
   icon: ServerStackIcon,
-  name: "Admin — Crons",
+  name: "Crons",
 };
